@@ -464,7 +464,7 @@ const convertFromSalesOrder = async (salesOrderId) => {
             ),
         };
     });
-
+    const customer = await repository.getCustomerById(salesOrder.customer_id);
     const today = new Date().toISOString().slice(0, 10);
     const orderNumber =
         `MO-${Date.now()}`;
@@ -485,38 +485,16 @@ const convertFromSalesOrder = async (salesOrderId) => {
             salesOrder.expected_shipment_date ?? null,
         status: "DRAFT",
         remarks: "Created from Sales Order",
+        quote_number: salesOrder.quote_number ?? null,
+        customer_name: customer?.display_name ?? customer?.company_name ?? null,
+        ply: items[0]?.ply ?? null,
+        box_spec: items[0]?.box_spec ?? null,
         items,
     });
 
+
     return getById(created.manufacturing_order_id);
 };
-
-const getBySalesOrderId = async (salesOrderId) => {
-    const result = await pool.query(
-        `SELECT *
-     FROM public.manufacturing_order
-     WHERE sales_order_id = $1
-     LIMIT 1`,
-        [salesOrderId]
-    );
-
-    return result.rows[0] || null;
-};
-
-const getSalesOrderItems = async (salesOrderId) => {
-    const result = await pool.query(
-        `SELECT
-       soi.sales_order_item_id,
-       to_jsonb(soi) AS item_data
-     FROM public.sales_order_item soi
-     WHERE soi.sales_order_id = $1
-     ORDER BY soi.sales_order_item_id`,
-        [salesOrderId]
-    );
-
-    return result.rows;
-};
-
 
 module.exports = {
     list,

@@ -21,24 +21,39 @@ const sendError = (res, error) => {
   });
 };
 
+
 const getAll = async (req, res) => {
   try {
-    const data = await service.list({
+    const limit = Math.min(
+      Math.max(Number(req.query.limit) || 10, 1),
+      500
+    );
+
+    const offset = Math.max(
+      Number(req.query.offset) || 0,
+      0
+    );
+
+    const result = await service.list({
       search: req.query.search || "",
       status: req.query.status || "",
-      limit: req.query.limit || 100,
-      offset: req.query.offset || 0,
+      limit,
+      offset,
     });
 
     res.json({
       success: true,
-      count: data.length,
-      data,
+      count: result.data.length,
+      total: result.total,
+      limit,
+      offset,
+      data: result.data,
     });
   } catch (error) {
     sendError(res, error);
   }
 };
+
 
 const getById = async (req, res) => {
   try {

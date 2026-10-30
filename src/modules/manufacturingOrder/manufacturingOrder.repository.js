@@ -2,78 +2,63 @@ const dbModule = require("../../config/database");
 const pool = dbModule.pool || dbModule;
 
 // Get all manufacturing orders for the left sidebar.
-const getAll = async ({
-    search = "",
-    status = "",
-    limit = 100,
-    offset = 0,
-} = {}) => {
+
+const getAll = async ({ search = "", status = "", limit = 10, offset = 0 } = {}) => {
     const values = [];
     const conditions = [];
 
     if (search) {
         values.push(`%${search}%`);
         const p = `$${values.length}`;
-
         conditions.push(`(
-      mo.manufacturing_order_number ILIKE ${p}
-      OR COALESCE(mo.sales_order_number, '') ILIKE ${p}
-      OR COALESCE(mo.customer_code, '') ILIKE ${p}
-    )`);
+            mo.manufacturing_order_number ILIKE ${p}
+            OR COALESCE(mo.sales_order_number, '') ILIKE ${p}
+            OR COALESCE(mo.customer_code, '') ILIKE ${p}
+            OR COALESCE(mo.customer_name, '') ILIKE ${p}
+            OR COALESCE(mo.quote_number, '') ILIKE ${p}
+        )`);
     }
-
     if (status) {
         values.push(status.toUpperCase());
         conditions.push(`mo.status = $${values.length}`);
     }
 
-    values.push(Math.min(Math.max(Number(limit) || 100, 1), 500));
-    const limitParam = `$${values.length}`;
-
-    values.push(Math.max(Number(offset) || 0, 0));
-    const offsetParam = `$${values.length}`;
-
-    const where = conditions.length
-        ? `WHERE ${conditions.join(" AND ")}`
-        : "";
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 100);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
 
     const result = await pool.query(
-        `SELECT mo.*
-       FROM public.manufacturing_order mo
-       ${where}
-      ORDER BY mo.created_at DESC,
-               mo.manufacturing_order_id DESC
-      LIMIT ${limitParam} OFFSET ${offsetParam}`,
-        values
+        `SELECT
+            mo.manufacturing_order_id, mo.manufacturing_order_number,
+            mo.sales_order_id, mo.sales_order_number,
+            mo.customer_id, mo.customer_code, mo.customer_name,
+            mo.quote_number, mo.ply, mo.box_spec,
+            mo.order_date, mo.expected_shipment_date, mo.status,
+            mo.item_count, mo.total_quantity, mo.completed_quantity,
+            mo.rejected_quantity, mo.estimated_hours, mo.created_at,
+            COUNT(*) OVER() AS total_count
+         FROM public.manufacturing_order mo
+         ${where}
+         ORDER BY mo.created_at DESC, mo.manufacturing_order_id DESC
+         LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+        [...values, safeLimit, safeOffset]
     );
 
-    const orders = result.rows;
-
-    for (const order of orders) {
-        order.customer = await getCustomerById(order.customer_id);
-
-        order.sales_order = await getSalesOrderById(
-            order.sales_order_id
-        );
-
-        order.items = await getItems(
-            order.manufacturing_order_id
-        );
-
-        const summary = await pool.query(
-            `SELECT
-          COUNT(*)::int AS item_count,
-          COALESCE(SUM(quantity), 0) AS total_quantity,
-          COALESCE(SUM(total_amount), 0) AS total_amount
-       FROM public.manufacturing_order_item
-       WHERE manufacturing_order_id = $1`,
-            [order.manufacturing_order_id]
-        );
-
-        order.item_summary = summary.rows[0];
+    let total = result.rows.length ? Number(result.rows[0].total_count) : 0;
+    if (!result.rows.length && safeOffset > 0) {
+        const c = await pool.query(
+            `SELECT COUNT(*) AS total FROM public.manufacturing_order mo ${where}`, values);
+        total = Number(c.rows[0].total) || 0;
     }
 
-    return orders;
+    const data = result.rows.map(({ total_count, customer_name, quote_number, ply, box_spec, ...row }) => ({
+        ...row,
+        customer: { customer_id: row.customer_id, customer_code: row.customer_code, display_name: customer_name },
+        sales_order: { sales_order_id: row.sales_order_id, sales_order_number: row.sales_order_number, quote_number },
+        items: [{ ply, box_spec }],
+    }));
+
+    return { data, total };
 };
 
 // Retrieve one manufacturing order by numeric ID or MO number.
@@ -83,31 +68,30 @@ const getById = async (id) => {
     const result = isNumericId
         ? await pool.query(
             `SELECT *
-           FROM public.manufacturing_order
-          WHERE manufacturing_order_id = $1
-          LIMIT 1`,
+               FROM public.manufacturing_order
+              WHERE manufacturing_order_id = $1
+              LIMIT 1`,
             [id]
         )
         : await pool.query(
             `SELECT *
-           FROM public.manufacturing_order
-          WHERE manufacturing_order_number = $1
-          LIMIT 1`,
+               FROM public.manufacturing_order
+              WHERE manufacturing_order_number = $1
+              LIMIT 1`,
             [id]
         );
 
     return result.rows[0] || null;
 };
 
-// Customer schema is not fully available, so retrieve the existing row.
 const getCustomerById = async (customerId, client = pool) => {
     if (!customerId) return null;
 
     const result = await client.query(
         `SELECT *
-       FROM public.customer
-      WHERE customer_id = $1
-      LIMIT 1`,
+           FROM public.customer
+          WHERE customer_id = $1
+          LIMIT 1`,
         [customerId]
     );
 
@@ -119,30 +103,28 @@ const getSalesOrderById = async (salesOrderId, client = pool) => {
 
     const result = await client.query(
         `SELECT *
-       FROM public.sales_order
-      WHERE sales_order_id = $1
-      LIMIT 1`,
+           FROM public.sales_order
+          WHERE sales_order_id = $1
+          LIMIT 1`,
         [salesOrderId]
     );
 
     return result.rows[0] || null;
 };
 
-// Include linked sales-order-item and box-specification fields.
-// to_jsonb avoids assuming the exact columns in those tables.
 const getItems = async (manufacturingOrderId, client = pool) => {
     const result = await client.query(
         `SELECT
-        moi.*,
-        to_jsonb(soi) AS linked_sales_order_item,
-        to_jsonb(bs) AS linked_box_specification
-     FROM public.manufacturing_order_item moi
-     LEFT JOIN public.sales_order_item soi
-       ON soi.sales_order_item_id = moi.sales_order_item_id
-     LEFT JOIN public.box_specification bs
-       ON bs.box_id = moi.box_id
-     WHERE moi.manufacturing_order_id = $1
-     ORDER BY moi.manufacturing_order_item_id`,
+            moi.*,
+            to_jsonb(soi) AS linked_sales_order_item,
+            to_jsonb(bs) AS linked_box_specification
+         FROM public.manufacturing_order_item moi
+         LEFT JOIN public.sales_order_item soi
+           ON soi.sales_order_item_id = moi.sales_order_item_id
+         LEFT JOIN public.box_specification bs
+           ON bs.box_id = moi.box_id
+         WHERE moi.manufacturing_order_id = $1
+         ORDER BY moi.manufacturing_order_item_id`,
         [manufacturingOrderId]
     );
 
@@ -168,6 +150,8 @@ const getByIdWithRelations = async (id) => {
     };
 };
 
+
+
 // Create the header and its items in one transaction.
 const create = async (payload) => {
     const client = await pool.connect();
@@ -182,7 +166,11 @@ const create = async (payload) => {
 
         const items = Array.isArray(payload.items)
             ? payload.items
-            : [];
+            : Array.isArray(payload.manufacturingOrder?.items)
+                ? payload.manufacturingOrder.items
+                : Array.isArray(payload.manufacturing_order?.items)
+                    ? payload.manufacturing_order.items
+                    : [];
 
         if (
             !header.manufacturing_order_number ||
@@ -199,31 +187,20 @@ const create = async (payload) => {
 
         const headerResult = await client.query(
             `INSERT INTO public.manufacturing_order (
-        manufacturing_order_number,
-        sales_order_id,
-        sales_order_number,
-        customer_id,
-        customer_code,
-        order_date,
-        expected_shipment_date,
-        manufacturing_start_time,
-        manufacturing_end_time,
-        status,
-        item_count,
-        total_quantity,
-        completed_quantity,
-        rejected_quantity,
-        estimated_hours,
-        actual_hours,
-        remarks,
-        created_by
-      )
-      VALUES (
+        manufacturing_order_number, sales_order_id, sales_order_number,
+        customer_id, customer_code, order_date, expected_shipment_date,
+        manufacturing_start_time, manufacturing_end_time, status,
+        item_count, total_quantity, completed_quantity, rejected_quantity,
+        estimated_hours, actual_hours, remarks, created_by,
+        quote_number, customer_name, ply, box_spec
+    )
+    VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9,
         COALESCE($10, 'DRAFT'),
-        $11, $12, $13, $14, $15, $16, $17, $18
-      )
-      RETURNING *`,
+        $11, $12, $13, $14, $15, $16, $17, $18,
+        $19, $20, $21, $22
+    )
+    RETURNING *`,
             [
                 header.manufacturing_order_number,
                 header.sales_order_id,
@@ -236,16 +213,17 @@ const create = async (payload) => {
                 header.manufacturing_end_time || null,
                 header.status || "DRAFT",
                 items.length,
-                items.reduce(
-                    (sum, item) => sum + (Number(item.quantity) || 0),
-                    0
-                ),
+                items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
                 Number(header.completed_quantity) || 0,
                 Number(header.rejected_quantity) || 0,
                 Number(header.estimated_hours) || 0,
                 Number(header.actual_hours) || 0,
                 header.remarks || null,
                 header.created_by || null,
+                header.quote_number || null,
+                header.customer_name || null,
+                header.ply ?? null,
+                header.box_spec || null,
             ]
         );
 
