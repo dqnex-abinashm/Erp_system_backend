@@ -6,6 +6,7 @@ const controller = require('./vendor.controller');
 
 const {
     createVendorValidator,
+    updateVendorValidator,
     vendorListValidator,
     vendorDetailsValidator
 } = require('./vendor.validation');
@@ -49,6 +50,16 @@ router.get(
     controller.getVendorDetails
 );
 
+// =====================================================
+// UPDATE VENDOR
+// =====================================================
+
+router.put(
+    '/:vendorId',
+    updateVendorValidator,
+    validateRequest,
+    controller.updateVendor
+);
 
 // =====================================================
 // VENDOR REEL SPECIFICATIONS

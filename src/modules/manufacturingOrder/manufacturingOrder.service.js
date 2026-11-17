@@ -224,6 +224,17 @@ const formatDetails = (order) => {
                 null
             ),
 
+            email: firstDefined(
+                customer.email,
+                null
+            ),
+
+            phone: firstDefined(
+                customer.primary_phone,
+                customer.phone,
+                null
+            ),
+
 
             point_of_contact: [
                 customer.primary_contact_prefix,

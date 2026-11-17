@@ -1,0 +1,20 @@
+// src/modules/supply_chain/shipment/shipment.constant.js
+
+const SHIPMENT_STATUS = {
+  DRAFT: 'DRAFT',
+  SHIPPED: 'SHIPPED',
+  IN_TRANSIT: 'IN_TRANSIT',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'CANCELLED',
+};
+
+// Save Draft = DRAFT, Save = SHIPPED
+const CREATE_ALLOWED_STATUS = [SHIPMENT_STATUS.DRAFT, SHIPMENT_STATUS.SHIPPED];
+
+const SHIPMENT_NUMBER_PREFIX = 'SHP';
+
+module.exports = {
+  SHIPMENT_STATUS,
+  CREATE_ALLOWED_STATUS,
+  SHIPMENT_NUMBER_PREFIX,
+};

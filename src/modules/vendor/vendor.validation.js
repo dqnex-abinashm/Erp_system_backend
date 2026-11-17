@@ -229,6 +229,19 @@ const createVendorValidator = [
         .isLength({ max: 20 })
 ];
 
+// =====================================================
+// UPDATE VENDOR VALIDATION
+// =====================================================
+
+const updateVendorValidator = [
+
+    param('vendorId')
+        .isInt({ min: 1 })
+        .withMessage('Vendor ID must be a positive integer'),
+
+    ...createVendorValidator
+];
+
 
 // =====================================================
 // VENDOR LIST VALIDATION
@@ -279,6 +292,7 @@ const vendorDetailsValidator = [
 
 module.exports = {
     createVendorValidator,
+    updateVendorValidator,
     vendorListValidator,
     vendorDetailsValidator
 };

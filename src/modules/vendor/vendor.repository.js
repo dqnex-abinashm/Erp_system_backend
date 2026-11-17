@@ -1431,6 +1431,103 @@ async function getVendorCommercialTerms(vendorId) {
     };
 }
 
+// =====================================================
+// UPDATE VENDOR
+// =====================================================
+
+async function updateVendor(client, vendorId, data) {
+
+    await client.query(
+        `UPDATE vendor SET
+            vendor_type = $1,
+            primary_salutation = $2,
+            primary_first_name = $3,
+            primary_last_name = $4,
+            display_name = $5,
+            company_name = $6,
+            vendor_language = $7,
+            email = $8,
+            primary_number = $9,
+            secondary_number = $10,
+            pan = $11,
+            gstin = $12,
+            msme = $13,
+            currency = $14,
+            opening_balance = $15,
+            payment_terms = $16,
+            updated_at = NOW()
+         WHERE vendor_id = $17`,
+        [
+            data.vendorType || 'Regular',
+            data.primaryContactPrefix || null,
+            data.primaryContactFirstName,
+            data.primaryContactLastName || null,
+            data.displayName,
+            data.companyName,
+            data.vendorLanguage || 'English',
+            data.emailAddress,
+            data.primaryNumber,
+            data.secondaryNumber || null,
+            data.pan,
+            data.gstin || null,
+            data.msme,
+            data.currencyCode || 'INR',
+            Number(data.openingBalance || 0),
+            data.paymentTermsId || 'Net 30',
+            vendorId
+        ]
+    );
+}
+
+async function updateAddress(client, vendorId, address) {
+
+    const result = await client.query(
+        `UPDATE vendor_address SET
+            address_line1 = $1,
+            address_line2 = $2,
+            city = $3,
+            state = $4,
+            country = $5,
+            pincode = $6,
+            phone = $7,
+            fax = $8,
+            contact_name = $9
+         WHERE vendor_id = $10 AND address_type = $11`,
+        [
+            address.street1 || '',
+            address.street2 || null,
+            address.city || '',
+            address.state || '',
+            address.country || 'India',
+            address.zipCode || '',
+            address.phone || null,
+            address.fax || null,
+            address.attention || null,
+            vendorId,
+            address.addressType
+        ]
+    );
+
+    // if the vendor had no such address saved, create it
+    if (result.rowCount === 0) {
+        await createAddress(client, vendorId, address);
+    }
+}
+
+async function deleteContacts(client, vendorId) {
+    await client.query(
+        'DELETE FROM vendor_contact WHERE vendor_id = $1',
+        [vendorId]
+    );
+}
+
+async function deleteBankDetails(client, vendorId) {
+    await client.query(
+        'DELETE FROM vendor_bank WHERE vendor_id = $1',
+        [vendorId]
+    );
+}
+
 
 // =====================================================
 // MODULE EXPORTS
@@ -1443,6 +1540,10 @@ module.exports = {
     createAddress,
     createContact,
     createBankDetails,
+    updateVendor,
+    updateAddress,
+    deleteContacts,
+    deleteBankDetails,
 
     // Duplicate checks
     findVendorByPan,

@@ -1,0 +1,19 @@
+// src/modules/supply_chain/package/package.constant.js
+
+const PACKAGE_STATUS = {
+  DRAFT: 'DRAFT',
+  PACKED: 'PACKED',
+  SHIPPED: 'SHIPPED',
+  CANCELLED: 'CANCELLED',
+};
+
+// Save Draft = DRAFT, Save = PACKED
+const CREATE_ALLOWED_STATUS = [PACKAGE_STATUS.DRAFT, PACKAGE_STATUS.PACKED];
+
+const PACKAGE_NUMBER_PREFIX = 'PKG';
+
+module.exports = {
+  PACKAGE_STATUS,
+  CREATE_ALLOWED_STATUS,
+  PACKAGE_NUMBER_PREFIX,
+};

@@ -480,8 +480,107 @@ async function getVendorCommercialTerms(vendorId) {
 }
 
 
+// =====================================================
+// UPDATE VENDOR
+// =====================================================
+
+async function updateVendor(vendorId, data) {
+
+    const client = await pool.connect();
+
+    try {
+
+        await client.query('BEGIN');
+
+        const existing =
+            await repository.getVendorById(vendorId);
+
+        if (!existing) {
+            const error = new Error('Vendor not found');
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // duplicate PAN (ignore this same vendor)
+        const existingPan =
+            await repository.findVendorByPan(client, data.pan);
+
+        if (
+            existingPan &&
+            String(existingPan.vendor_id) !== String(vendorId)
+        ) {
+            throw new Error(
+                `Vendor already exists with PAN ${data.pan}`
+            );
+        }
+
+        // duplicate GSTIN (ignore this same vendor)
+        if (data.gstin) {
+            const existingGstin =
+                await repository.findVendorByGstin(client, data.gstin);
+
+            if (
+                existingGstin &&
+                String(existingGstin.vendor_id) !== String(vendorId)
+            ) {
+                throw new Error(
+                    `Vendor already exists with GSTIN ${data.gstin}`
+                );
+            }
+        }
+
+        await repository.updateVendor(client, vendorId, data);
+
+        if (data.billingAddress) {
+            await repository.updateAddress(client, vendorId, {
+                ...data.billingAddress,
+                addressType: 'Billing'
+            });
+        }
+
+        if (data.shippingAddress) {
+            await repository.updateAddress(client, vendorId, {
+                ...data.shippingAddress,
+                addressType: 'Shipping'
+            });
+        }
+
+        // contacts and banks: replace with what the form sent
+        await repository.deleteContacts(client, vendorId);
+
+        const contacts = (data.contacts || []).filter(
+            c => c.name || c.emailAddress || c.mobileNumber
+        );
+        for (const contact of contacts) {
+            await repository.createContact(client, vendorId, contact);
+        }
+
+        await repository.deleteBankDetails(client, vendorId);
+
+        for (const bank of (data.bankDetails || [])) {
+            await repository.createBankDetails(client, vendorId, bank);
+        }
+
+        await client.query('COMMIT');
+
+        return { vendorId };
+
+    } catch (error) {
+
+        await client.query('ROLLBACK');
+
+        throw error;
+
+    } finally {
+
+        client.release();
+    }
+}
+
+
 module.exports = {
     createVendor,
+    updateVendor,
     getVendors,
     getVendorDetails,
     getVendorReelSpecifications,

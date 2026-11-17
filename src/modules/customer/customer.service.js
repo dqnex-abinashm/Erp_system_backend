@@ -144,6 +144,9 @@ async function getCustomers(params) {
     const status =
         params.status || '';
 
+    const paymentFilter =
+        params.paymentFilter || '';
+
     const sortBy =
         params.sortBy || 'createdAt';
 
@@ -158,6 +161,7 @@ async function getCustomers(params) {
             offset,
             search,
             status,
+            paymentFilter,
             sortBy,
             sortOrder
         });
@@ -355,8 +359,103 @@ async function getCustomerInvoice(customerId) {
         paymentActivity
     };
 }
+
+// =====================================================
+// UPDATE CUSTOMER
+// =====================================================
+
+async function updateCustomer(customerId, data) {
+
+    const client = await pool.connect();
+
+    try {
+
+        await client.query('BEGIN');
+
+        const existing =
+            await repository.getCustomerById(customerId);
+
+        if (!existing) {
+            const error = new Error('Customer not found');
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // duplicate PAN (ignore this same customer)
+        const existingPan =
+            await repository.findCustomerByPan(client, data.pan);
+
+        if (
+            existingPan &&
+            String(existingPan.customer_id) !== String(customerId)
+        ) {
+            throw new Error(
+                `Customer already exists with PAN ${data.pan}`
+            );
+        }
+
+        // duplicate GSTIN (ignore this same customer)
+        if (data.gstin) {
+            const existingGstin =
+                await repository.findCustomerByGstin(client, data.gstin);
+
+            if (
+                existingGstin &&
+                String(existingGstin.customer_id) !== String(customerId)
+            ) {
+                throw new Error(
+                    `Customer already exists with GSTIN ${data.gstin}`
+                );
+            }
+        }
+
+        await repository.updateCustomer(client, customerId, data);
+
+        await repository.updateAddress(client, customerId, {
+            ...data.billingAddress,
+            addressType: 'BILLING'
+        });
+
+        await repository.updateAddress(client, customerId, {
+            ...data.shippingAddress,
+            addressType: 'SHIPPING'
+        });
+
+        // contacts and banks: replace with what the form sent
+        await repository.deleteContacts(client, customerId);
+
+        const contacts = (data.contacts || []).filter(
+            c => c.name || c.emailAddress || c.mobileNumber
+        );
+        for (const contact of contacts) {
+            await repository.createContact(client, customerId, contact);
+        }
+
+        await repository.deleteBankDetails(client, customerId);
+
+        for (const bank of (data.bankDetails || [])) {
+            await repository.createBankDetails(client, customerId, bank);
+        }
+
+        await client.query('COMMIT');
+
+        return { customerId };
+
+    } catch (error) {
+
+        await client.query('ROLLBACK');
+
+        throw error;
+
+    } finally {
+
+        client.release();
+    }
+}
+
 module.exports = {
     createCustomer,
+    updateCustomer,
     getCustomers,
     getCustomerDetails,
     getCustomerBoxSpecifications,

@@ -38,7 +38,7 @@ async function getSalesOrderById(req, res) {
     try {
         const { id } = req.params;
         const salesOrder = await salesOrderService.getSalesOrderById(id);
-        
+
         if (!salesOrder) {
             return res.status(404).json({ error: 'Sales Order not found' });
         }
@@ -53,8 +53,42 @@ async function getSalesOrderById(req, res) {
     }
 }
 
+async function updateSalesOrder(req, res) {
+    try {
+        const { id } = req.params;
+        const { saleDate, deliveryDate, shippingAddress } = req.body;
+
+        if (!saleDate && !deliveryDate && !shippingAddress) {
+            return res.status(400).json({ error: 'Nothing to update' });
+        }
+        if (saleDate && deliveryDate && deliveryDate < saleDate) {
+            return res.status(400).json({ error: 'Expected shipment date cannot be before order date' });
+        }
+
+        const result = await salesOrderService.updateSalesOrder(id, {
+            saleDate,
+            deliveryDate,
+            shippingAddress
+        });
+        if (!result) {
+            return res.status(404).json({ error: 'Sales Order not found' });
+        }
+
+        res.status(200).json({ message: 'Sales order updated successfully', data: result });
+    } catch (error) {
+        console.error('Error updating sales order:', error);
+        res.status(500).json({
+            error: 'Failed to update sales order',
+            details: error.message
+        });
+    }
+}
+
+
+
 module.exports = {
     convertQuoteToSO,
     getAllSalesOrders,
-    getSalesOrderById
+    getSalesOrderById,
+    updateSalesOrder
 };

@@ -169,12 +169,45 @@ async function getCustomerInvoice(req, res, next) {
         next(error);
     }
 }
+
+
+// =====================================================
+// UPDATE CUSTOMER
+// =====================================================
+
+async function updateCustomer(req, res, next) {
+
+    try {
+
+        const customerId =
+            Number(req.params.customerId);
+
+        const result =
+            await customerService.updateCustomer(
+                customerId,
+                req.body
+            );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Customer updated successfully',
+            data: result
+        });
+
+    } catch (error) {
+
+        next(error);
+    }
+}
+
+
 // =====================================================
 // EXPORTS
 // =====================================================
 
 module.exports = {
     createCustomer,
+    updateCustomer,
     getCustomers,
     getCustomerDetails,
     getCustomerBoxSpecifications,

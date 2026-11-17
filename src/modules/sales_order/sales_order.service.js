@@ -201,6 +201,9 @@ async function getSalesOrderById(id) {
                 so.quote_number as "quoteNo",
                 so.po_number as "poNo",
                 c.display_name as "customerName",
+                c.customer_code as "customerCode",
+                c.email as "email",
+                c.primary_phone as "phone",
                 so.billing_address as "billingAddress",
                 so.shipping_address as "shippingAddress",
                 c.gstin as "gstin",
@@ -226,7 +229,12 @@ async function getSalesOrderById(id) {
                 -- Board Calculation values
                 soi.board_size as "boardSize",
                 soi.top_paper_number as "topPaperNumber",
-                soi.two_ply_number as "twoPlyNumber"
+                soi.two_ply_number as "twoPlyNumber",
+
+                -- Dates (used by the edit-dates feature)
+                TO_CHAR(so.sale_date, 'YYYY-MM-DD') as "saleDateIso",
+                TO_CHAR(so.delivery_date, 'YYYY-MM-DD') as "deliveryDateIso",
+                TO_CHAR(so.delivery_date, 'DD/MM/YYYY') as "deliveryDate"
             FROM sales_order so
             LEFT JOIN customer c ON so.customer_id = c.customer_id
             LEFT JOIN sales_order_item soi ON so.sales_order_id = soi.sales_order_id
@@ -252,8 +260,30 @@ async function getSalesOrderById(id) {
     }
 }
 
+async function updateSalesOrder(id, data) {
+    const res = await pool.query(
+        `UPDATE sales_order
+            SET sale_date = COALESCE($1, sale_date),
+                delivery_date = COALESCE($2, delivery_date),
+                shipping_address = COALESCE($3, shipping_address)
+          WHERE sales_order_id = $4`,
+        [
+            data.saleDate || null,
+            data.deliveryDate || null,
+            data.shippingAddress ? data.shippingAddress.trim() : null,
+            id
+        ]
+    );
+
+    if (res.rowCount === 0) {
+        return null;
+    }
+    return { salesOrderId: id };
+}
+
 module.exports = {
     createSalesOrderFromQuote,
     getAllSalesOrders,
-    getSalesOrderById
+    getSalesOrderById,
+    updateSalesOrder
 };

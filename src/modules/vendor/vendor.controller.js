@@ -183,9 +183,38 @@ async function getVendorCommercialTerms(
     }
 }
 
+// =====================================================
+// UPDATE VENDOR
+// =====================================================
+
+async function updateVendor(req, res, next) {
+
+    try {
+
+        const vendorId =
+            Number(req.params.vendorId);
+
+        const result =
+            await vendorService.updateVendor(
+                vendorId,
+                req.body
+            );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Vendor updated successfully',
+            data: result
+        });
+
+    } catch (error) {
+
+        next(error);
+    }
+}
 
 module.exports = {
     createVendor,
+    updateVendor,
     getVendors,
     getVendorDetails,
     getVendorReelSpecifications,

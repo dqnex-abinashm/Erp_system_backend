@@ -1,4 +1,4 @@
-const {body, query, param} = require('express-validator');
+const { body, query, param } = require('express-validator');
 
 
 // =====================================================
@@ -75,6 +75,21 @@ const createCustomerValidator = [
         .withMessage('Shipping address is required')
 ];
 
+// =====================================================
+// UPDATE CUSTOMER VALIDATION
+// =====================================================
+
+const updateCustomerValidator = [
+
+    param('customerId')
+        .notEmpty()
+        .withMessage('Customer ID is required')
+        .isInt({ min: 1 })
+        .withMessage('Customer ID must be a positive integer'),
+
+    ...createCustomerValidator
+];
+
 
 // =====================================================
 // CUSTOMER LIST VALIDATION
@@ -135,6 +150,7 @@ const customerDetailsValidator = [
 
 module.exports = {
     createCustomerValidator,
+    updateCustomerValidator,
     customerListValidator,
     customerDetailsValidator
 };

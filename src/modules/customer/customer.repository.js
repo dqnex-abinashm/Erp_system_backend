@@ -188,6 +188,7 @@ async function getCustomers({
     offset,
     search,
     status,
+    paymentFilter,
     sortBy,
     sortOrder
 }) {
@@ -236,6 +237,36 @@ async function getCustomers({
         `;
     }
 
+
+    // =====================================================
+    // PAYMENT FILTER (Un-Paid / Over Due)
+    // Adds no query values, so the `values` array is unchanged
+    // =====================================================
+
+    if (paymentFilter === 'UNPAID') {
+        whereConditions += `
+            AND EXISTS (
+                SELECT 1
+                FROM invoice i
+                WHERE i.customer_id = c.customer_id
+                  AND UPPER(i.payment_status) <> 'PAID'
+                  AND i.balance_amount > 0
+            )
+        `;
+    }
+
+    if (paymentFilter === 'OVERDUE') {
+        whereConditions += `
+            AND EXISTS (
+                SELECT 1
+                FROM invoice i
+                WHERE i.customer_id = c.customer_id
+                  AND UPPER(i.payment_status) <> 'PAID'
+                  AND i.balance_amount > 0
+                  AND i.due_date < CURRENT_DATE
+            )
+        `;
+    }
 
     // =====================================================
     // SORT COLUMN WHITELIST
@@ -750,7 +781,7 @@ async function getCustomerOrderHistory({
 // =====================================================
 // GET CUSTOMER COMMERCIAL TERMS
 // =====================================================
-    async function getCustomerCommercialTerms(customerId) {
+async function getCustomerCommercialTerms(customerId) {
 
     const query = `
         SELECT
@@ -890,6 +921,109 @@ async function getCustomerPaymentActivity(customerId) {
 
     return result.rows;
 }
+
+// =====================================================
+// UPDATE CUSTOMER
+// =====================================================
+
+async function updateCustomer(client, customerId, data) {
+
+    await client.query(
+        `UPDATE customer SET
+            customer_type = $1,
+            primary_contact_prefix = $2,
+            primary_contact_first_name = $3,
+            primary_contact_last_name = $4,
+            display_name = $5,
+            company_name = $6,
+            customer_language = $7,
+            email = $8,
+            primary_phone = $9,
+            secondary_phone = $10,
+            pan = $11,
+            gstin = $12,
+            msme = $13,
+            sales_region_id = $14,
+            currency_code = $15,
+            opening_balance = $16,
+            payment_terms_id = $17,
+            updated_at = NOW()
+         WHERE customer_id = $18`,
+        [
+            data.customerType,
+            data.primaryContactPrefix,
+            data.primaryContactFirstName,
+            data.primaryContactLastName,
+            data.displayName,
+            data.companyName,
+            data.customerLanguage,
+            data.emailAddress,
+            data.primaryNumber,
+            data.secondaryNumber,
+            data.pan,
+            data.gstin,
+            data.msme,
+            data.salesRegionId,
+            data.currencyCode,
+            data.openingBalance,
+            data.paymentTermsId,
+            customerId
+        ]
+    );
+}
+
+async function updateAddress(client, customerId, address) {
+
+    const result = await client.query(
+        `UPDATE customer_addresses SET
+            attention = $1,
+            country = $2,
+            street_1 = $3,
+            street_2 = $4,
+            city = $5,
+            district = $6,
+            state = $7,
+            zip_code = $8,
+            phone = $9,
+            fax = $10
+         WHERE customer_id = $11 AND address_type = $12`,
+        [
+            address.attention,
+            address.country,
+            address.street1,
+            address.street2,
+            address.city,
+            address.district,
+            address.state,
+            address.zipCode,
+            address.phone,
+            address.fax || null,
+            customerId,
+            address.addressType
+        ]
+    );
+
+    // if the customer had no such address saved, create it
+    if (result.rowCount === 0) {
+        await createAddress(client, customerId, address);
+    }
+}
+
+async function deleteContacts(client, customerId) {
+    await client.query(
+        'DELETE FROM customer_contacts WHERE customer_id = $1',
+        [customerId]
+    );
+}
+
+async function deleteBankDetails(client, customerId) {
+    await client.query(
+        'DELETE FROM customer_bank_details WHERE customer_id = $1',
+        [customerId]
+    );
+}
+
+
 module.exports = {
 
     // Create
@@ -897,6 +1031,10 @@ module.exports = {
     createAddress,
     createContact,
     createBankDetails,
+    updateCustomer,
+    updateAddress,
+    deleteContacts,
+    deleteBankDetails,
 
     // Validation / duplicate checks
     findCustomerByPan,

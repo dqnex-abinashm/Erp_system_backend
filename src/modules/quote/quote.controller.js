@@ -105,9 +105,31 @@ async function getQuoteById(req, res, next) {
     }
 }
 
+async function updateQuote(req, res, next) {
+    try {
+        const { id } = req.params;
+        const payload = req.body;
+
+        if (!payload.customerId) {
+            return res.status(400).json({ success: false, message: 'Customer ID is required.' });
+        }
+
+        const result = await quoteService.updateQuote(id, payload);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Quote not found' });
+        }
+
+        return res.status(200).json({ success: true, message: 'Quote updated successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+
 module.exports = {
     calculateBoard,
     createQuote,
+    updateQuote,
     getAllQuotes,
     getQuoteById
 };

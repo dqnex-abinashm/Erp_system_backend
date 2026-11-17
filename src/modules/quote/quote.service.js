@@ -162,9 +162,25 @@ function calculateBoardSize(
         const areaBoxCount = Math.floor(boardArea / boxArea);
 
         // Calculate total required weights
-        const reqTopWt = (topWt * papers) / 1000;
-        const reqLinerWt = (linerWt * papers) / 1000;
-        const reqFluteWt = (fluteWt * papers) / 1000;
+        const ROUND_DECIMALS = 5;
+        const roundTo = (v) => {
+            const f = Math.pow(10, ROUND_DECIMALS);
+            return Math.round(v * f) / f;
+        };
+
+        const boardSizeValue = bestScenario.boardWidth * bestScenario.boardLength; // L x W
+        const pairs = Math.max(Math.floor((ply - 1) / 2), 1); // 3->1, 5->2, 7->3
+
+        const calcRequired = (gsm, multiplier) => {
+            const total = boardSizeValue * gsm * multiplier;
+            const newTotal = roundTo(total / 10000000);
+            const required = newTotal * quantity;
+            return Math.ceil(Number(required.toFixed(6)));
+        };
+
+        const reqTopWt = calcRequired(topGsm, 1);
+        const reqLinerWt = calcRequired(linerGsm, pairs);
+        const reqFluteWt = calcRequired(fluteGsm, fluteFactor * pairs);
 
         const deckle = round(bestScenario.boardWidth);
 
@@ -174,7 +190,7 @@ function calculateBoardSize(
             // For 2-ply, linerFlutePairs is 0.5, so 1 top + 1 flute
             calculatedBf = ((topGsm * topBf) + (fluteGsm * fluteBf)) / 1000;
         } else {
-            calculatedBf = ((topGsm * topBf) + (linerGsm * linerBf * linerFlutePairs) + (fluteGsm * fluteBf * linerFlutePairs)) / 1000;
+            calculatedBf = ((topGsm * topBf) + (linerGsm * linerBf * linerFlutePairs) + (fluteGsm * fluteBf * 0.5 * linerFlutePairs)) / 1000;
         }
 
         // Helper function to mock checking inventory and finding next available sizes (uske upar wale)
@@ -449,12 +465,15 @@ async function createQuote(data) {
                         pro_item_name,
                         pro_req_quantity,
                         pro_item_unit,
+                        top_bf,
+                        liner_bf,
+                        flut_bf,
                         created_at
                     )
                     VALUES (
                         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                         $11, $12, $13, $14, $15, $16, $17, $18,
-                        $19, $20, $21, $22, $23, $24, NOW()
+                        $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW()
                     )
                 `;
 
@@ -487,7 +506,10 @@ async function createQuote(data) {
                 material.itemCode || null,
                 material.itemName || null,
                 Number(material.requiredWeight) || 0,
-                material.unit || material.itemUnit || 'KG'
+                material.unit || material.itemUnit || 'KG',
+                item.topBf || null,
+                item.linerBf || null,
+                item.fluteBf || null
             ];
 
             await client.query(itemInsertQuery, itemValues);
@@ -515,11 +537,25 @@ async function getAllQuotes() {
                 c.display_name as "customerName",
                 MAX(qi.box_spec) as "boxSpec",
                 SUM(qi.quantity) as quantity,
-                SUM(qi.total_weight) as "totalWeight"
+                SUM(qi.total_weight) as "totalWeight",
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM sales_order so
+                        JOIN invoice i ON i.sales_order_id = so.sales_order_id
+                        WHERE so.quote_id = q.quote_id
+                    ) THEN 'Invoice'
+                    WHEN EXISTS (
+                        SELECT 1 FROM sales_order so
+                        WHERE so.quote_id = q.quote_id
+                    ) THEN 'Accepted'
+                    WHEN q.expiry_date < CURRENT_DATE THEN 'Expired'
+                    ELSE 'Draft'
+                END as status
             FROM quote q
             LEFT JOIN customer c ON q.customer_id = c.customer_id
             LEFT JOIN quote_item qi ON q.quote_id = qi.quote_id
-            GROUP BY q.quote_id, q.quote_date, q.quote_number, c.display_name, q.created_at
+            GROUP BY q.quote_id, q.quote_date, q.expiry_date, q.quote_number, c.display_name, q.created_at
             ORDER BY q.created_at DESC
         `;
         const res = await client.query(query);
@@ -553,6 +589,10 @@ async function getQuoteById(id) {
                 CONCAT_WS(', ', sa.street_1, sa.street_2, sa.city, sa.state, sa.zip_code) as "shippingAddress",
                 c.gstin as "gstin",
                 CONCAT_WS(' ', c.primary_contact_first_name, c.primary_contact_last_name) as "poc",
+                c.display_name as "customerName",
+                c.customer_code as "customerCode",
+                c.email as "email",
+                c.primary_phone as "phone",
                 q.sales_man as "salesperson",
                 TO_CHAR(q.expiry_date, 'DD/MM/YYYY') as "expectedShipment",
                 qi.quantity as quantity,
@@ -576,7 +616,16 @@ async function getQuoteById(id) {
                 qi.pro_item_code AS "proItemCode",
                 qi.pro_item_name AS "proItemName",
                 qi.pro_req_quantity AS "proReqQuantity",
-                qi.pro_item_unit AS "proItemUnit"
+                qi.pro_item_unit AS "proItemUnit",
+                q.customer_id   as "customerId",
+                q.reference_no  as "referenceNo",
+                q.project_name  as "projectName",
+                qi.box_weight   as "boxWeight",
+                TO_CHAR(q.quote_date, 'YYYY-MM-DD')  as "quoteDateIso",
+                TO_CHAR(q.expiry_date, 'YYYY-MM-DD') as "expiryDateIso",
+                qi.top_bf       as "topBf",
+                qi.liner_bf     as "linerBf",
+                qi.flut_bf      as "fluteBf"
             FROM quote q
             LEFT JOIN customer c ON q.customer_id = c.customer_id
             LEFT JOIN customer_addresses ba ON c.customer_id = ba.customer_id AND ba.address_type = 'BILLING'
@@ -609,10 +658,71 @@ async function getQuoteById(id) {
         client.release();
     }
 }
+async function updateQuote(id, data) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
 
+        const quoteRes = await client.query(
+            `UPDATE quote
+                SET customer_id = $1, sales_man = $2, project_name = $3, reference_no = $4,
+                    quote_date = COALESCE($5, quote_date),
+                    expiry_date = COALESCE($6, expiry_date)
+              WHERE quote_id = $7`,
+            [
+                data.customerId,
+                data.salesMan || 1,
+                data.projectName || '',
+                data.referenceNo || '',
+                data.quoteDate || null,
+                data.expiryDate || null,
+                id
+            ]
+        );
+
+        if (quoteRes.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return null;
+        }
+
+        if (data.items && data.items.length > 0) {
+            const item = data.items[0];
+            await client.query(
+                `UPDATE quote_item SET
+                    box_length = $1, box_width = $2, box_height = $3, quantity = $4,
+                    board_size = $5, bf = $6, box_weight = $7, total_weight = $8,
+                    ply_type = $9, top_gsm = $10, liner_gsm = $11, top_paper_number = $12,
+                    two_ply_number = $13, flute_gsm = $14, box_type = $15, paper_type = $16,
+                    box_size = $17, box_spec = $18, box_description = $19,
+                    top_bf = $20, liner_bf = $21, flut_bf = $22
+                 WHERE quote_id = $23`,
+                [
+                    item.length, item.width, item.height, item.quantity,
+                    item.boardSize || '', item.bf ?? item.boardFactor ?? null,
+                    item.boxWeight || 0, item.totalWeight || 0,
+                    item.plyType || 3, item.topGsm || 0, item.linerGsm || 0,
+                    item.topPaperNumber ?? null, item.twoPlyNumber ?? null,
+                    item.fluteGsm || 0, item.boxType || '', item.paperType || '',
+                    item.boxSize || '', item.itemName || '', item.itemDescription || '',
+                    item.topBf || null, item.linerBf || null, item.fluteBf || null,
+                    id
+                ]
+            );
+        }
+
+        await client.query('COMMIT');
+        return { quoteId: id };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
+}
 module.exports = {
     calculateBoardSize,
     createQuote,
+    updateQuote,
     getAllQuotes,
     getQuoteById
 };

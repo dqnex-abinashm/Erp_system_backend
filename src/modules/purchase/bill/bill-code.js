@@ -55,21 +55,35 @@ const CREATE_BILL_ITEM = `
 const GET_ALL_BILLS = `
   SELECT
     b.*,
-    v.vendor_code AS vendor_code_from_vendor
+    v.display_name AS vendor_name,
+    v.vendor_code AS vendor_code_from_vendor,
+    po.purchase_order_number
   FROM bill b
   LEFT JOIN vendor v
     ON b.vendor_id = v.vendor_id
+  LEFT JOIN purchase_order po
+    ON b.purchase_order_id = po.purchase_order_id
   ORDER BY b.created_at DESC
 `;
-
 
 const GET_BILL_BY_ID = `
   SELECT
     b.*,
-    v.vendor_code AS vendor_code_from_vendor
+    v.display_name AS vendor_name,
+    v.company_name AS vendor_company_name,
+    v.vendor_code AS vendor_code_from_vendor,
+    v.gstin AS vendor_gstin,
+    v.primary_first_name AS vendor_contact_name,
+    v.primary_number AS vendor_phone,
+    to_jsonb(v) AS vendor,
+    po.purchase_order_number,
+    po.billing_address AS po_billing_address,
+    po.shipping_address AS po_shipping_address
   FROM bill b
   LEFT JOIN vendor v
     ON b.vendor_id = v.vendor_id
+  LEFT JOIN purchase_order po
+    ON b.purchase_order_id = po.purchase_order_id
   WHERE b.bill_id = $1
 `;
 

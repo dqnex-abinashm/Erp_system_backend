@@ -32,7 +32,7 @@ const machineUtilizationRoutes =
     require('./modules/machine/machineUtilization.routes');
 
 const manufacturingOrderRoutes = require(
-  "./modules/manufacturingOrder/manufacturingOrder.routes"
+    "./modules/manufacturingOrder/manufacturingOrder.routes"
 );
 
 // =====================================================
@@ -174,9 +174,12 @@ app.use(
 // -----------------------------------------------------
 
 app.use(
-  "/api/v1/manufacturing-orders",
-  manufacturingOrderRoutes
+    "/api/v1/manufacturing-orders",
+    manufacturingOrderRoutes
 );
+
+app.use('/api/v1/packages', require('./modules/supply_chain/package/package.routes'));
+app.use('/api/v1/shipments', require('./modules/supply_chain/shipment/shipment.routes'));
 
 // =====================================================
 // ERROR HANDLER

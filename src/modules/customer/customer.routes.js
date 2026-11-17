@@ -6,6 +6,7 @@ const controller = require('./customer.controller');
 
 const {
     createCustomerValidator,
+    updateCustomerValidator,
     customerListValidator,
     customerDetailsValidator
 } = require('./customer.validation');
@@ -47,6 +48,17 @@ router.get(
     customerDetailsValidator,
     validateRequest,
     controller.getCustomerDetails
+);
+
+// =====================================================
+// UPDATE CUSTOMER
+// =====================================================
+
+router.put(
+    '/:customerId',
+    updateCustomerValidator,
+    validateRequest,
+    controller.updateCustomer
 );
 
 
