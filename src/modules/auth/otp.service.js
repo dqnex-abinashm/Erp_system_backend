@@ -1,10 +1,18 @@
-const nodemailer = require('nodemailer');
+let nodemailer = null;
+try {
+    nodemailer = require('nodemailer');
+} catch (e) {
+    // nodemailer optional require fallback if npm install hasn't been run yet
+}
 
 // In-memory store for active OTPs: email -> { otp, expiresAt }
 const otpStore = new Map();
 
 // Helper to create mail transporter if SMTP env vars exist
 function getTransporter() {
+    if (!nodemailer) {
+        return null;
+    }
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         return nodemailer.createTransport({
             host: process.env.SMTP_HOST,
@@ -61,6 +69,8 @@ async function generateOtp(email) {
         } catch (mailErr) {
             console.error(`[AUTH OTP SERVICE] Failed to send email via SMTP:`, mailErr.message);
         }
+    } else if (!nodemailer) {
+        console.log(`[AUTH OTP SERVICE] Note: 'nodemailer' not installed. Run 'npm install' in backend to enable real email sending.`);
     } else {
         console.log(`[AUTH OTP SERVICE] SMTP not configured. OTP displayed in console and response for development.`);
     }
