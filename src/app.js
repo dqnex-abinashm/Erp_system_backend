@@ -36,6 +36,8 @@ const manufacturingOrderRoutes = require(
 );
 const invoiceRoutes = require('./modules/invoice/invoice.routes');
 
+const authRoutes = require('./modules/auth/auth.routes');
+
 // =====================================================
 // ERROR HANDLER
 // =====================================================
@@ -183,6 +185,7 @@ app.use(
 
 app.use('/api/v1/packages', require('./modules/supply_chain/package/package.routes'));
 app.use('/api/v1/shipments', require('./modules/supply_chain/shipment/shipment.routes'));
+app.use('/api/v1/auth', authRoutes);
 
 app.use('/api/v1/invoices', invoiceRoutes);
 
