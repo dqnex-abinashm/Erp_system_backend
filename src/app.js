@@ -34,6 +34,7 @@ const machineUtilizationRoutes =
 const manufacturingOrderRoutes = require(
     "./modules/manufacturingOrder/manufacturingOrder.routes"
 );
+const invoiceRoutes = require('./modules/invoice/invoice.routes');
 
 // =====================================================
 // ERROR HANDLER
@@ -43,6 +44,8 @@ const errorMiddleware =
     require('./middleware/error.middleware');
 
 const app = express();
+
+
 
 // =====================================================
 // CORS
@@ -180,6 +183,8 @@ app.use(
 
 app.use('/api/v1/packages', require('./modules/supply_chain/package/package.routes'));
 app.use('/api/v1/shipments', require('./modules/supply_chain/shipment/shipment.routes'));
+
+app.use('/api/v1/invoices', invoiceRoutes);
 
 // =====================================================
 // ERROR HANDLER
