@@ -409,9 +409,14 @@ async function createQuote(data) {
         const quoteInsertQuery = `
             INSERT INTO quote (
                 customer_id, quote_date, expiry_date, sales_man, project_name, reference_no,
-                created_at, created_by, quote_number
+                created_at, created_by, quote_number, is_draft
             )
-            VALUES ($1, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $2, $3, $4, NOW(), 1, $5)
+            VALUES (
+                $1,
+                COALESCE($6::date, CURRENT_DATE),
+                COALESCE($7::date, (CURRENT_DATE + INTERVAL '30 days')::date),
+                $2, $3, $4, NOW(), 1, $5, $8
+            )
             RETURNING quote_id
         `;
 
@@ -421,7 +426,10 @@ async function createQuote(data) {
             data.salesMan || 1,
             data.projectName || '',
             data.referenceNo || '',
-            quoteNumber
+            quoteNumber,
+            data.quoteDate || null,
+            data.expiryDate || null,
+            data.status === 'Draft'
         ];
 
         const quoteRes = await client.query(quoteInsertQuery, quoteValues);
@@ -549,8 +557,9 @@ async function getAllQuotes() {
                         SELECT 1 FROM sales_order so
                         WHERE so.quote_id = q.quote_id
                     ) THEN 'Accepted'
+                    WHEN q.is_draft THEN 'Draft'
                     WHEN q.expiry_date < CURRENT_DATE THEN 'Expired'
-                    ELSE 'Draft'
+                    ELSE 'Pending Approval'
                 END as status
             FROM quote q
             LEFT JOIN customer c ON q.customer_id = c.customer_id
@@ -667,7 +676,8 @@ async function updateQuote(id, data) {
             `UPDATE quote
                 SET customer_id = $1, sales_man = $2, project_name = $3, reference_no = $4,
                     quote_date = COALESCE($5, quote_date),
-                    expiry_date = COALESCE($6, expiry_date)
+                    expiry_date = COALESCE($6, expiry_date),
+                    is_draft = $8
               WHERE quote_id = $7`,
             [
                 data.customerId,
@@ -676,7 +686,8 @@ async function updateQuote(id, data) {
                 data.referenceNo || '',
                 data.quoteDate || null,
                 data.expiryDate || null,
-                id
+                id,
+                data.status === 'Draft'
             ]
         );
 
