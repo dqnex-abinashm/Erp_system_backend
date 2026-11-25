@@ -10,7 +10,7 @@ async function createCustomer(client, data) {
             primary_contact_last_name,
             display_name,
             company_name,
-            customer_language,
+            customer_website,
             email,
             primary_phone,
             secondary_phone,
@@ -40,7 +40,7 @@ async function createCustomer(client, data) {
         data.primaryContactLastName,
         data.displayName,
         data.companyName,
-        data.customerLanguage,
+        data.website || null,
         data.emailAddress,
         data.primaryNumber,
         data.secondaryNumber,
@@ -400,7 +400,7 @@ async function getCustomerById(customerId) {
 
             c.company_name AS "companyName",
 
-            c.customer_language AS "customerLanguage",
+            c.customer_website AS "website",
 
             c.email AS "email",
 
@@ -936,7 +936,7 @@ async function updateCustomer(client, customerId, data) {
             primary_contact_last_name = $4,
             display_name = $5,
             company_name = $6,
-            customer_language = $7,
+            customer_website = $7,
             email = $8,
             primary_phone = $9,
             secondary_phone = $10,
@@ -956,7 +956,7 @@ async function updateCustomer(client, customerId, data) {
             data.primaryContactLastName,
             data.displayName,
             data.companyName,
-            data.customerLanguage,
+            data.website || null,
             data.emailAddress,
             data.primaryNumber,
             data.secondaryNumber,
