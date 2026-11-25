@@ -1,7 +1,15 @@
 const otpService = require('./otp.service');
 
-const ADMIN_EMAIL = 'admin@gmail.com';
-const ADMIN_PASSWORD = 'Admin@123';
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
+
+function getAllowedAdminEmails() {
+    return [
+        'admin@gmail.com',
+        'info@dqnex.com',
+        (process.env.SMTP_USER || '').toLowerCase().trim(),
+        (process.env.ADMIN_EMAIL || '').toLowerCase().trim()
+    ].filter(Boolean);
+}
 
 /**
  * Step 1: Validate Email + Password and send OTP
@@ -18,8 +26,9 @@ async function login(req, res, next) {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        const allowedEmails = getAllowedAdminEmails();
 
-        if (normalizedEmail !== ADMIN_EMAIL.toLowerCase() || password !== ADMIN_PASSWORD) {
+        if (!allowedEmails.includes(normalizedEmail) || password !== DEFAULT_ADMIN_PASSWORD) {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid email or password'
@@ -37,7 +46,7 @@ async function login(req, res, next) {
                 email: normalizedEmail,
                 expiresInSeconds: 300,
                 sentViaEmail: otpData.sentViaEmail,
-                devOtp: otpData.otp // Helpful for testing if SMTP not configured
+                devOtp: otpData.otp // Helpful for testing
             }
         });
     } catch (error) {
@@ -60,8 +69,9 @@ async function verifyOtp(req, res, next) {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        const allowedEmails = getAllowedAdminEmails();
 
-        if (normalizedEmail !== ADMIN_EMAIL.toLowerCase()) {
+        if (!allowedEmails.includes(normalizedEmail)) {
             return res.status(400).json({
                 success: false,
                 message: 'Unrecognized email address'
@@ -80,12 +90,12 @@ async function verifyOtp(req, res, next) {
         const user = {
             id: 'admin-001',
             name: 'Administrator',
-            email: ADMIN_EMAIL,
+            email: normalizedEmail,
             role: 'Super Admin',
             permissions: ['*']
         };
 
-        const token = 'erp-token-' + Buffer.from(`${ADMIN_EMAIL}:${Date.now()}`).toString('base64');
+        const token = 'erp-token-' + Buffer.from(`${normalizedEmail}:${Date.now()}`).toString('base64');
 
         return res.status(200).json({
             success: true,
@@ -115,8 +125,9 @@ async function resendOtp(req, res, next) {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        const allowedEmails = getAllowedAdminEmails();
 
-        if (normalizedEmail !== ADMIN_EMAIL.toLowerCase()) {
+        if (!allowedEmails.includes(normalizedEmail)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid email address'

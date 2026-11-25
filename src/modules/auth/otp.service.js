@@ -14,10 +14,11 @@ function getTransporter() {
         return null;
     }
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const isSecure = Number(process.env.SMTP_PORT) === 465 || process.env.SMTP_SECURE === 'true';
         return nodemailer.createTransport({
             host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT) || 587,
-            secure: Number(process.env.SMTP_PORT) === 465,
+            port: Number(process.env.SMTP_PORT) || 465,
+            secure: isSecure,
             auth: {
                 user: process.env.SMTP_USER,
                 pass: process.env.SMTP_PASS
@@ -47,11 +48,18 @@ async function generateOtp(email) {
     let sentViaEmail = false;
     const transporter = getTransporter();
 
+    // If using the default admin placeholder, forward OTP to configured SMTP inbox
+    let targetEmail = normalizedEmail;
+    if ((normalizedEmail === 'admin@gmail.com' || !normalizedEmail.includes('@')) && process.env.SMTP_USER) {
+        targetEmail = process.env.SMTP_USER.toLowerCase().trim();
+        console.log(`[AUTH OTP SERVICE] Default admin login detected. Routing OTP email to: ${targetEmail}`);
+    }
+
     if (transporter) {
         try {
             await transporter.sendMail({
-                from: process.env.SMTP_FROM || `"ORRNEX ERP Security" <${process.env.SMTP_USER}>`,
-                to: normalizedEmail,
+                from: process.env.MAIL_FROM || process.env.SMTP_FROM || `"ORRNEX ERP Security" <${process.env.SMTP_USER}>`,
+                to: targetEmail,
                 subject: `Your ORRNEX ERP Login Verification Code: ${otp}`,
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
@@ -60,12 +68,13 @@ async function generateOtp(email) {
                         <div style="background: #f1f5f9; padding: 18px; border-radius: 8px; text-align: center; margin: 24px 0;">
                             <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #0f172a;">${otp}</span>
                         </div>
-                        <p style="color: #94a3b8; font-size: 12px;">This code will expire in 5 minutes. If you did not request this code, please ignore this email.</p>
+                        <p style="color: #64748b; font-size: 13px;">Login account: <strong>${normalizedEmail}</strong></p>
+                        <p style="color: #94a3b8; font-size: 12px; margin-top: 16px;">This code will expire in 5 minutes. If you did not request this code, please ignore this email.</p>
                     </div>
                 `
             });
             sentViaEmail = true;
-            console.log(`[AUTH OTP SERVICE] Email sent successfully to ${normalizedEmail}`);
+            console.log(`[AUTH OTP SERVICE] Email sent successfully to ${targetEmail} (for ${normalizedEmail})`);
         } catch (mailErr) {
             console.error(`[AUTH OTP SERVICE] Failed to send email via SMTP:`, mailErr.message);
         }
