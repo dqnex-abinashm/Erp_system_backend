@@ -304,6 +304,7 @@ async function getCustomers({
             c.customer_code AS "customerCode",
             c.display_name AS "displayName",
             c.gstin AS "gstin",
+            c.currency_code AS "currencyCode",
 
             CONCAT(
                 c.primary_contact_first_name,
