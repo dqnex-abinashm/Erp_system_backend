@@ -8,3 +8,4 @@ npm-debug.log*
 .github
 uploads
 *.md
+docker-compose*.yml
