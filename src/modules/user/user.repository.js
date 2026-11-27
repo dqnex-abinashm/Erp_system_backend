@@ -178,6 +178,7 @@ async function findUserForAuth(identifier) {
             u.is_active,
             u.is_delete,
             u.locked_until,
+            CASE WHEN u.locked_until IS NOT NULL AND u.locked_until > CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS is_locked,
             u.login_attempt_count,
             d.department_name,
             p.plant_name,

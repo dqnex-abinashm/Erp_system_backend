@@ -74,7 +74,7 @@ async function login(req, res, next) {
             });
         }
 
-        if (user.locked_until && new Date(user.locked_until) > new Date()) {
+        if (Number(user.is_locked) === 1) {
             return res.status(423).json({
                 success: false,
                 message: 'Account temporarily locked due to multiple failed attempts. Try again later.',
@@ -299,7 +299,8 @@ async function getMe(req, res, next) {
         }
 
         const sessionRes = await pool.query(
-            `SELECT session_id, user_id, session_expiry
+            `SELECT session_id, user_id, session_expiry,
+                    CASE WHEN session_expiry IS NOT NULL AND session_expiry < CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS is_expired
              FROM public.login_sessions
              WHERE access_token = $1 AND login_status = 'ACTIVE'
              LIMIT 1`,
@@ -314,7 +315,7 @@ async function getMe(req, res, next) {
             });
         }
 
-        if (session.session_expiry && new Date(session.session_expiry) < new Date()) {
+        if (Number(session.is_expired) === 1) {
             await pool.query(
                 `UPDATE public.login_sessions
                  SET login_status = 'EXPIRED', is_current_session = FALSE, updated_at = CURRENT_TIMESTAMP

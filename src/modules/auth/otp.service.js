@@ -135,7 +135,8 @@ async function verifyOtp(email, enteredOtp, otpType = 'Login Auth') {
     const normalizedEmail = email.trim().toLowerCase();
 
     const res = await pool.query(
-        `SELECT otp_id, otp_code, attempt_count, max_attempts, expiry_at
+        `SELECT otp_id, otp_code, attempt_count, max_attempts, expiry_at,
+                CASE WHEN expiry_at < CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS is_expired
          FROM public.otp_master
          WHERE LOWER(email) = $1
            AND otp_type = $2
@@ -150,7 +151,7 @@ async function verifyOtp(email, enteredOtp, otpType = 'Login Auth') {
         return { valid: false, message: 'No active OTP requested for this email or it has already been used' };
     }
 
-    if (new Date() > new Date(record.expiry_at)) {
+    if (Number(record.is_expired) === 1) {
         await pool.query(
             `UPDATE public.otp_master
              SET otp_status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP
