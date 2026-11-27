@@ -330,17 +330,17 @@ async function getVendors({
 
         whereConditions += `
             AND (
-                v.display_name ILIKE $${values.length}
-                OR v.company_name ILIKE $${values.length}
-                OR v.vendor_code ILIKE $${values.length}
-                OR v.gstin ILIKE $${values.length}
-                OR v.email ILIKE $${values.length}
-                OR v.primary_number ILIKE $${values.length}
+                v.display_name LIKE $${values.length}
+                OR v.company_name LIKE $${values.length}
+                OR v.vendor_code LIKE $${values.length}
+                OR v.gstin LIKE $${values.length}
+                OR v.email LIKE $${values.length}
+                OR v.primary_number LIKE $${values.length}
                 OR CONCAT(
                     v.primary_first_name,
                     ' ',
                     v.primary_last_name
-                ) ILIKE $${values.length}
+                ) LIKE $${values.length}
             )
         `;
     }
@@ -960,9 +960,9 @@ async function getVendorReelSpecifications(
 
         whereConditions += `
             AND (
-                poi.reel_spec ILIKE $2
-                OR poi.reel_description ILIKE $2
-                OR poi.paper_type ILIKE $2
+                poi.reel_spec LIKE $2
+                OR poi.reel_description LIKE $2
+                OR poi.paper_type LIKE $2
             )
         `;
     }
@@ -1107,10 +1107,10 @@ async function getVendorPurchaseOrderHistory({
 
         whereConditions += `
             AND (
-                po.purchase_order_number ILIKE $2
-                OR poi.reel_spec ILIKE $2
-                OR poi.reel_description ILIKE $2
-                OR poi.paper_type ILIKE $2
+                po.purchase_order_number LIKE $2
+                OR poi.reel_spec LIKE $2
+                OR poi.reel_description LIKE $2
+                OR poi.paper_type LIKE $2
             )
         `;
     }

@@ -210,15 +210,15 @@ async function getCustomers({
 
         whereConditions += `
             AND (
-                c.display_name ILIKE $${values.length}
-                OR c.gstin ILIKE $${values.length}
-                OR c.email ILIKE $${values.length}
-                OR c.primary_phone ILIKE $${values.length}
+                c.display_name LIKE $${values.length}
+                OR c.gstin LIKE $${values.length}
+                OR c.email LIKE $${values.length}
+                OR c.primary_phone LIKE $${values.length}
                 OR CONCAT(
                     c.primary_contact_first_name,
                     ' ',
                     c.primary_contact_last_name
-                ) ILIKE $${values.length}
+                ) LIKE $${values.length}
             )
         `;
     }

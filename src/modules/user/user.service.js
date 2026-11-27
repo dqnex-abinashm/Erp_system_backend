@@ -55,18 +55,18 @@ function formatUserRow(row) {
 }
 
 function handlePgUniqueError(err) {
-    if (err && err.code === '23505') {
-        const constraint = err.constraint || '';
-        if (constraint.includes('email')) throw createHttpError(409, 'Email address is already registered');
-        if (constraint.includes('username')) throw createHttpError(409, 'Username is already taken');
-        if (constraint.includes('employee_id')) throw createHttpError(409, 'Employee ID already exists');
-        if (constraint.includes('mobile')) throw createHttpError(409, 'Mobile number is already registered');
+    if (err && (err.code === '23505' || err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
+        const msg = `${err.constraint || ''} ${err.sqlMessage || ''} ${err.message || ''}`.toLowerCase();
+        if (msg.includes('email')) throw createHttpError(409, 'Email address is already registered');
+        if (msg.includes('username')) throw createHttpError(409, 'Username is already taken');
+        if (msg.includes('employee_id')) throw createHttpError(409, 'Employee ID already exists');
+        if (msg.includes('mobile')) throw createHttpError(409, 'Mobile number is already registered');
         throw createHttpError(409, 'Duplicate user record already exists');
     }
-    if (err && err.code === '23503') {
+    if (err && (err.code === '23503' || err.code === 'ER_NO_REFERENCED_ROW_2' || err.errno === 1452)) {
         throw createHttpError(400, 'Invalid Department, Plant, Shift, or Role reference');
     }
-    if (err && err.code === '23514') {
+    if (err && (err.code === '23514' || err.code === 'ER_CONSTRAINT_FAILED' || err.errno === 4025)) {
         throw createHttpError(400, 'Validation constraint failed (e.g. invalid gender value)');
     }
     throw err;

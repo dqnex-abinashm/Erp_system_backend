@@ -1,6 +1,6 @@
 const pool = require('../../config/database');
 
-const USER_SELECT_SQL = `
+const USER_BASE_SELECT_SQL = `
     SELECT
         u.users_id,
         u.employee_id,
@@ -27,39 +27,53 @@ const USER_SELECT_SQL = `
         u.inactive_comments,
         u.is_delete,
         u.created_at,
-        u.updated_at,
-        COALESCE(
-            json_agg(
-                json_build_object(
-                    'role_id', r.role_id,
-                    'role_code', r.role_code,
-                    'role_name', r.role_name
-                ) ORDER BY r.role_id
-            ) FILTER (WHERE r.role_id IS NOT NULL),
-            '[]'::json
-        ) AS roles
-    FROM public.users u
-    LEFT JOIN public.departments d ON d.department_id = u.department_id
-    LEFT JOIN public.plants p ON p.plant_id = u.plant_id
-    LEFT JOIN public.shifts s ON s.shift_id = u.default_shift_id
-    LEFT JOIN public.user_roles ur ON ur.users_id = u.users_id
-    LEFT JOIN public.roles r ON r.role_id = ur.role_id AND r.is_active = TRUE
+        u.updated_at
+    FROM users u
+    LEFT JOIN departments d ON d.department_id = u.department_id
+    LEFT JOIN plants p ON p.plant_id = u.plant_id
+    LEFT JOIN shifts s ON s.shift_id = u.default_shift_id
 `;
 
-const USER_GROUP_BY_SQL = `
-    GROUP BY
-        u.users_id,
-        d.department_name, d.department_code,
-        p.plant_name, p.plant_code,
-        s.shift_name, s.shift_code
-`;
+async function attachRolesToUsers(userRows) {
+    if (!Array.isArray(userRows) || userRows.length === 0) return [];
+    const userIds = userRows.map((u) => u.users_id);
+    const placeholders = userIds.map(() => '?').join(', ');
+
+    const rolesRes = await pool.query(
+        `SELECT
+            ur.users_id,
+            r.role_id,
+            r.role_code,
+            r.role_name
+         FROM user_roles ur
+         INNER JOIN roles r ON r.role_id = ur.role_id AND r.is_active = TRUE
+         WHERE ur.users_id IN (${placeholders})
+         ORDER BY r.role_id`,
+        userIds
+    );
+
+    const roleMap = new Map();
+    for (const row of rolesRes.rows) {
+        if (!roleMap.has(row.users_id)) roleMap.set(row.users_id, []);
+        roleMap.get(row.users_id).push({
+            role_id: row.role_id,
+            role_code: row.role_code,
+            role_name: row.role_name,
+        });
+    }
+
+    return userRows.map((u) => ({
+        ...u,
+        roles: roleMap.get(u.users_id) || [],
+    }));
+}
 
 async function getMasterMetadata() {
     const [departmentsRes, plantsRes, shiftsRes, rolesRes] = await Promise.all([
-        pool.query(`SELECT department_id, department_code, department_name, description FROM public.departments WHERE is_active = TRUE ORDER BY department_id`),
-        pool.query(`SELECT plant_id, plant_code, plant_name, plant_address FROM public.plants WHERE is_active = TRUE ORDER BY plant_id`),
-        pool.query(`SELECT shift_id, shift_code, shift_name, start_time, end_time, description FROM public.shifts WHERE is_active = TRUE ORDER BY shift_id`),
-        pool.query(`SELECT role_id, role_code, role_name, role_description FROM public.roles WHERE is_active = TRUE ORDER BY role_id`),
+        pool.query(`SELECT department_id, department_code, department_name, description FROM departments WHERE is_active = TRUE ORDER BY department_id`),
+        pool.query(`SELECT plant_id, plant_code, plant_name, plant_address FROM plants WHERE is_active = TRUE ORDER BY plant_id`),
+        pool.query(`SELECT shift_id, shift_code, shift_name, start_time, end_time, description FROM shifts WHERE is_active = TRUE ORDER BY shift_id`),
+        pool.query(`SELECT role_id, role_code, role_name, role_description FROM roles WHERE is_active = TRUE ORDER BY role_id`),
     ]);
 
     return {
@@ -78,10 +92,10 @@ async function getRolesWithUserCount() {
             r.role_name,
             r.role_description,
             r.is_active,
-            COUNT(u.users_id)::int AS user_count
-        FROM public.roles r
-        LEFT JOIN public.user_roles ur ON ur.role_id = r.role_id
-        LEFT JOIN public.users u ON u.users_id = ur.users_id AND u.is_delete = FALSE
+            CAST(COUNT(u.users_id) AS SIGNED) AS user_count
+        FROM roles r
+        LEFT JOIN user_roles ur ON ur.role_id = r.role_id
+        LEFT JOIN users u ON u.users_id = ur.users_id AND u.is_delete = FALSE
         WHERE r.is_active = TRUE
         GROUP BY r.role_id
         ORDER BY r.role_id
@@ -94,26 +108,26 @@ async function findAllUsers(filters = {}) {
     const params = [];
 
     if (filters.search) {
-        params.push(`%${filters.search.trim()}%`);
-        const idx = params.length;
+        const term = `%${filters.search.trim()}%`;
         conditions.push(`(
-            u.first_name ILIKE $${idx}
-            OR u.last_name ILIKE $${idx}
-            OR (u.first_name || ' ' || u.last_name) ILIKE $${idx}
-            OR u.email ILIKE $${idx}
-            OR u.username ILIKE $${idx}
-            OR COALESCE(u.employee_id, '') ILIKE $${idx}
+            u.first_name LIKE ?
+            OR u.last_name LIKE ?
+            OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+            OR u.email LIKE ?
+            OR u.username LIKE ?
+            OR COALESCE(u.employee_id, '') LIKE ?
         )`);
+        params.push(term, term, term, term, term, term);
     }
 
     if (filters.departmentId) {
+        conditions.push(`u.department_id = ?`);
         params.push(Number(filters.departmentId));
-        conditions.push(`u.department_id = $${params.length}`);
     }
 
     if (filters.plantId) {
+        conditions.push(`u.plant_id = ?`);
         params.push(Number(filters.plantId));
-        conditions.push(`u.plant_id = $${params.length}`);
     }
 
     if (filters.status === 'Active') {
@@ -122,30 +136,31 @@ async function findAllUsers(filters = {}) {
         conditions.push(`u.is_active = FALSE`);
     }
 
-    const havingClause = filters.roleId
-        ? `HAVING bool_or(ur.role_id = $${params.push(Number(filters.roleId))})`
-        : '';
+    if (filters.roleId) {
+        conditions.push(`EXISTS (SELECT 1 FROM user_roles ur2 WHERE ur2.users_id = u.users_id AND ur2.role_id = ?)`);
+        params.push(Number(filters.roleId));
+    }
 
     const sql = `
-        ${USER_SELECT_SQL}
+        ${USER_BASE_SELECT_SQL}
         WHERE ${conditions.join(' AND ')}
-        ${USER_GROUP_BY_SQL}
-        ${havingClause}
         ORDER BY u.users_id DESC
     `;
 
     const result = await pool.query(sql, params);
-    return result.rows;
+    return await attachRolesToUsers(result.rows);
 }
 
 async function findUserById(userId) {
     const sql = `
-        ${USER_SELECT_SQL}
-        WHERE u.users_id = $1 AND u.is_delete = FALSE
-        ${USER_GROUP_BY_SQL}
+        ${USER_BASE_SELECT_SQL}
+        WHERE u.users_id = ? AND u.is_delete = FALSE
+        LIMIT 1
     `;
     const result = await pool.query(sql, [Number(userId)]);
-    return result.rows[0] || null;
+    if (result.rows.length === 0) return null;
+    const withRoles = await attachRolesToUsers(result.rows);
+    return withRoles[0] || null;
 }
 
 async function findUserForAuth(identifier) {
@@ -166,38 +181,27 @@ async function findUserForAuth(identifier) {
             u.login_attempt_count,
             d.department_name,
             p.plant_name,
-            s.shift_name,
-            COALESCE(
-                json_agg(
-                    json_build_object(
-                        'role_id', r.role_id,
-                        'role_code', r.role_code,
-                        'role_name', r.role_name
-                    ) ORDER BY r.role_id
-                ) FILTER (WHERE r.role_id IS NOT NULL),
-                '[]'::json
-            ) AS roles
-        FROM public.users u
-        LEFT JOIN public.departments d ON d.department_id = u.department_id
-        LEFT JOIN public.plants p ON p.plant_id = u.plant_id
-        LEFT JOIN public.shifts s ON s.shift_id = u.default_shift_id
-        LEFT JOIN public.user_roles ur ON ur.users_id = u.users_id
-        LEFT JOIN public.roles r ON r.role_id = ur.role_id AND r.is_active = TRUE
-        WHERE (LOWER(u.email) = $1 OR LOWER(u.username) = $1)
+            s.shift_name
+        FROM users u
+        LEFT JOIN departments d ON d.department_id = u.department_id
+        LEFT JOIN plants p ON p.plant_id = u.plant_id
+        LEFT JOIN shifts s ON s.shift_id = u.default_shift_id
+        WHERE (LOWER(u.email) = ? OR LOWER(u.username) = ?)
           AND u.is_delete = FALSE
-        ${USER_GROUP_BY_SQL}, u.password, u.locked_until, u.login_attempt_count
         LIMIT 1
     `;
-    const result = await pool.query(sql, [normalized]);
-    return result.rows[0] || null;
+    const result = await pool.query(sql, [normalized, normalized]);
+    if (result.rows.length === 0) return null;
+    const withRoles = await attachRolesToUsers(result.rows);
+    return withRoles[0] || null;
 }
 
 async function usernameExists(username, excludeUserId = null) {
     const params = [username.toLowerCase()];
-    let sql = `SELECT 1 FROM public.users WHERE LOWER(username) = $1`;
+    let sql = `SELECT 1 FROM users WHERE LOWER(username) = ?`;
     if (excludeUserId) {
         params.push(Number(excludeUserId));
-        sql += ` AND users_id <> $2`;
+        sql += ` AND users_id <> ?`;
     }
     const res = await pool.query(sql, params);
     return res.rows.length > 0;
@@ -209,11 +213,11 @@ async function createUser(data, roleIds = []) {
         await client.query('BEGIN');
 
         const insertRes = await client.query(
-            `INSERT INTO public.users (
+            `INSERT INTO users (
                 employee_id, first_name, last_name, username, email, mobile,
                 gender, designation, department_id, plant_id, default_shift_id,
                 password, is_active, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING users_id`,
             [
                 data.employeeId,
@@ -238,9 +242,7 @@ async function createUser(data, roleIds = []) {
         if (Array.isArray(roleIds) && roleIds.length > 0) {
             for (const roleId of roleIds) {
                 await client.query(
-                    `INSERT INTO public.user_roles (users_id, role_id, assigned_by)
-                     VALUES ($1, $2, $3)
-                     ON CONFLICT (users_id, role_id) DO NOTHING`,
+                    `INSERT IGNORE INTO user_roles (users_id, role_id, assigned_by) VALUES (?, ?, ?)`,
                     [newUserId, Number(roleId), data.createdBy || null]
                 );
             }
@@ -262,19 +264,19 @@ async function updateUser(userId, data, roleIds = null) {
         await client.query('BEGIN');
 
         const sets = [
-            'employee_id = $1',
-            'first_name = $2',
-            'last_name = $3',
-            'username = $4',
-            'email = $5',
-            'mobile = $6',
-            'gender = $7',
-            'designation = $8',
-            'department_id = $9',
-            'plant_id = $10',
-            'default_shift_id = $11',
-            'is_active = $12',
-            'updated_by = $13',
+            'employee_id = ?',
+            'first_name = ?',
+            'last_name = ?',
+            'username = ?',
+            'email = ?',
+            'mobile = ?',
+            'gender = ?',
+            'designation = ?',
+            'department_id = ?',
+            'plant_id = ?',
+            'default_shift_id = ?',
+            'is_active = ?',
+            'updated_by = ?',
             'updated_at = CURRENT_TIMESTAMP',
         ];
         const params = [
@@ -295,30 +297,27 @@ async function updateUser(userId, data, roleIds = null) {
 
         if (data.passwordHash) {
             params.push(data.passwordHash);
-            sets.push(`password = $${params.length}`);
+            sets.push(`password = ?`);
         }
 
         params.push(Number(userId));
         const updateSql = `
-            UPDATE public.users
+            UPDATE users
             SET ${sets.join(', ')}
-            WHERE users_id = $${params.length} AND is_delete = FALSE
-            RETURNING users_id
+            WHERE users_id = ? AND is_delete = FALSE
         `;
 
         const updRes = await client.query(updateSql, params);
-        if (updRes.rows.length === 0) {
+        if (updRes.rowCount === 0) {
             await client.query('ROLLBACK');
             return null;
         }
 
         if (Array.isArray(roleIds)) {
-            await client.query(`DELETE FROM public.user_roles WHERE users_id = $1`, [Number(userId)]);
+            await client.query(`DELETE FROM user_roles WHERE users_id = ?`, [Number(userId)]);
             for (const roleId of roleIds) {
                 await client.query(
-                    `INSERT INTO public.user_roles (users_id, role_id, assigned_by)
-                     VALUES ($1, $2, $3)
-                     ON CONFLICT (users_id, role_id) DO NOTHING`,
+                    `INSERT IGNORE INTO user_roles (users_id, role_id, assigned_by) VALUES (?, ?, ?)`,
                     [Number(userId), Number(roleId), data.updatedBy || null]
                 );
             }
@@ -336,33 +335,31 @@ async function updateUser(userId, data, roleIds = null) {
 
 async function updateUserStatus(userId, isActive, comments = null, actorId = null) {
     const res = await pool.query(
-        `UPDATE public.users
-         SET is_active = $1,
-             inactive_comments = $2,
-             inactive_by = $3,
-             updated_by = $3,
+        `UPDATE users
+         SET is_active = ?,
+             inactive_comments = ?,
+             inactive_by = ?,
+             updated_by = ?,
              updated_at = CURRENT_TIMESTAMP
-         WHERE users_id = $4 AND is_delete = FALSE
-         RETURNING users_id`,
-        [Boolean(isActive), isActive ? null : comments, actorId, Number(userId)]
+         WHERE users_id = ? AND is_delete = FALSE`,
+        [Boolean(isActive), isActive ? null : comments, actorId, actorId, Number(userId)]
     );
-    if (res.rows.length === 0) return null;
+    if (res.rowCount === 0) return null;
     return await findUserById(userId);
 }
 
 async function softDeleteUser(userId, actorId = null) {
     const res = await pool.query(
-        `UPDATE public.users
+        `UPDATE users
          SET is_delete = TRUE,
              is_active = FALSE,
-             inactive_by = $1,
-             updated_by = $1,
+             inactive_by = ?,
+             updated_by = ?,
              updated_at = CURRENT_TIMESTAMP
-         WHERE users_id = $2 AND is_delete = FALSE
-         RETURNING users_id`,
-        [actorId, Number(userId)]
+         WHERE users_id = ? AND is_delete = FALSE`,
+        [actorId, actorId, Number(userId)]
     );
-    return res.rows.length > 0;
+    return res.rowCount > 0;
 }
 
 module.exports = {

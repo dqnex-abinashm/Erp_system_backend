@@ -11,11 +11,11 @@ const getAll = async ({ search = "", status = "", limit = 10, offset = 0 } = {})
         values.push(`%${search}%`);
         const p = `$${values.length}`;
         conditions.push(`(
-            mo.manufacturing_order_number ILIKE ${p}
-            OR COALESCE(mo.sales_order_number, '') ILIKE ${p}
-            OR COALESCE(mo.customer_code, '') ILIKE ${p}
-            OR COALESCE(mo.customer_name, '') ILIKE ${p}
-            OR COALESCE(mo.quote_number, '') ILIKE ${p}
+            mo.manufacturing_order_number LIKE ${p}
+            OR COALESCE(mo.sales_order_number, '') LIKE ${p}
+            OR COALESCE(mo.customer_code, '') LIKE ${p}
+            OR COALESCE(mo.customer_name, '') LIKE ${p}
+            OR COALESCE(mo.quote_number, '') LIKE ${p}
         )`);
     }
     if (status) {
@@ -114,21 +114,44 @@ const getSalesOrderById = async (salesOrderId, client = pool) => {
 
 const getItems = async (manufacturingOrderId, client = pool) => {
     const result = await client.query(
-        `SELECT
-            moi.*,
-            to_jsonb(soi) AS linked_sales_order_item,
-            to_jsonb(bs) AS linked_box_specification
-         FROM public.manufacturing_order_item moi
-         LEFT JOIN public.sales_order_item soi
-           ON soi.sales_order_item_id = moi.sales_order_item_id
-         LEFT JOIN public.box_specification bs
-           ON bs.box_id = moi.box_id
-         WHERE moi.manufacturing_order_id = $1
+        `SELECT moi.*
+         FROM manufacturing_order_item moi
+         WHERE moi.manufacturing_order_id = ?
          ORDER BY moi.manufacturing_order_item_id`,
         [manufacturingOrderId]
     );
 
-    return result.rows;
+    const rows = result.rows;
+    if (!rows.length) return [];
+
+    const soiIds = [...new Set(rows.map((r) => r.sales_order_item_id).filter(Boolean))];
+    const boxIds = [...new Set(rows.map((r) => r.box_id).filter(Boolean))];
+
+    const soiMap = new Map();
+    if (soiIds.length) {
+        const placeholders = soiIds.map(() => '?').join(', ');
+        const soiRes = await client.query(
+            `SELECT * FROM sales_order_item WHERE sales_order_item_id IN (${placeholders})`,
+            soiIds
+        );
+        for (const r of soiRes.rows) soiMap.set(r.sales_order_item_id, r);
+    }
+
+    const boxMap = new Map();
+    if (boxIds.length) {
+        const placeholders = boxIds.map(() => '?').join(', ');
+        const boxRes = await client.query(
+            `SELECT * FROM box_specification WHERE box_id IN (${placeholders})`,
+            boxIds
+        );
+        for (const r of boxRes.rows) boxMap.set(r.box_id, r);
+    }
+
+    return rows.map((moi) => ({
+        ...moi,
+        linked_sales_order_item: soiMap.get(moi.sales_order_item_id) || null,
+        linked_box_specification: boxMap.get(moi.box_id) || null,
+    }));
 };
 
 const getByIdWithRelations = async (id) => {
@@ -394,36 +417,36 @@ const update = async (id, payload) => {
     values.push(id);
 
     const result = await pool.query(
-        `UPDATE public.manufacturing_order
+        `UPDATE manufacturing_order
         SET ${setClause},
             modified_at = CURRENT_TIMESTAMP
-      WHERE manufacturing_order_id = $${values.length}
-      RETURNING *`,
+      WHERE manufacturing_order_id = $${values.length}`,
         values
     );
 
-    return result.rows[0] || null;
+    if (result.rowCount === 0) return null;
+    return await getById(id);
 };
 
 const updateStatus = async (id, status, modifiedBy = null) => {
     const result = await pool.query(
-        `UPDATE public.manufacturing_order
+        `UPDATE manufacturing_order
         SET status = $1,
             modified_by = $2,
             modified_at = CURRENT_TIMESTAMP
-      WHERE manufacturing_order_id = $3
-      RETURNING *`,
+      WHERE manufacturing_order_id = $3`,
         [status, modifiedBy, id]
     );
 
-    return result.rows[0] || null;
+    if (result.rowCount === 0) return null;
+    return await getById(id);
 };
 
 
 const getBySalesOrderId = async (salesOrderId) => {
     const result = await pool.query(
         `SELECT *
-     FROM public.manufacturing_order
+     FROM manufacturing_order
      WHERE sales_order_id = $1
      LIMIT 1`,
         [salesOrderId]
@@ -435,16 +458,17 @@ const getBySalesOrderId = async (salesOrderId) => {
 
 const getSalesOrderItems = async (salesOrderId) => {
     const result = await pool.query(
-        `SELECT
-       soi.sales_order_item_id,
-       to_jsonb(soi) AS item_data
-     FROM public.sales_order_item AS soi
-     WHERE soi.sales_order_id = $1
+        `SELECT soi.*
+     FROM sales_order_item AS soi
+     WHERE soi.sales_order_id = ?
      ORDER BY soi.sales_order_item_id`,
         [salesOrderId]
     );
 
-    return result.rows;
+    return result.rows.map((soi) => ({
+        sales_order_item_id: soi.sales_order_item_id,
+        item_data: soi,
+    }));
 };
 
 

@@ -75,7 +75,17 @@ const GET_BILL_BY_ID = `
     v.gstin AS vendor_gstin,
     v.primary_first_name AS vendor_contact_name,
     v.primary_number AS vendor_phone,
-    to_jsonb(v) AS vendor,
+    CASE WHEN v.vendor_id IS NOT NULL THEN JSON_OBJECT(
+      'vendor_id', v.vendor_id,
+      'vendor_code', v.vendor_code,
+      'display_name', v.display_name,
+      'company_name', v.company_name,
+      'gstin', v.gstin,
+      'primary_first_name', v.primary_first_name,
+      'primary_last_name', v.primary_last_name,
+      'primary_number', v.primary_number,
+      'email', v.email
+    ) ELSE NULL END AS vendor,
     po.purchase_order_number,
     po.billing_address AS po_billing_address,
     po.shipping_address AS po_shipping_address
@@ -141,7 +151,6 @@ const UPDATE_BILL = `
     modified_by = $18,
     modified_at = CURRENT_TIMESTAMP
   WHERE bill_id = $19
-  RETURNING *
 `;
 
 

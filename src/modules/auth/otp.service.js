@@ -56,7 +56,7 @@ async function generateOtp(email, options = {}) {
          ) VALUES (
             $1, $2, 'EMAIL', $3, $4,
             'GENERATED', 0, 3,
-            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '5 minutes', $5, $6, $1
+            CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE), $5, $6, $1
          )`,
         [userId, otpType, normalizedEmail, otp, ipAddress, userAgent]
     );
@@ -65,7 +65,7 @@ async function generateOtp(email, options = {}) {
         await pool.query(
             `UPDATE public.users
              SET last_otp = $1,
-                 otp_expiry = CURRENT_TIMESTAMP + INTERVAL '5 minutes',
+                 otp_expiry = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE),
                  updated_at = CURRENT_TIMESTAMP
              WHERE users_id = $2`,
             [otp, userId]

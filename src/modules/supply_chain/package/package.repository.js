@@ -87,7 +87,10 @@ const getSalesOrdersByCustomer = async (customerId) => {
 };
 
 const getPackableItems = async (customerId, salesOrderIds) => {
-  const { rows } = await pool.query(Q.GET_PACKABLE_ITEMS, [customerId, salesOrderIds]);
+  const ids = Array.isArray(salesOrderIds) ? salesOrderIds.map(Number).filter(Boolean) : [];
+  if (ids.length === 0) return [];
+  const sql = Q.buildGetPackableItemsQuery(ids.length);
+  const { rows } = await pool.query(sql, [customerId, ...ids]);
   return rows;
 };
 

@@ -296,10 +296,10 @@ async function getInventoryItems({
         values.push(`%${search}%`);
         whereConditions += `
             AND (
-                i.item_name ILIKE $${values.length}
-                OR i.item_code ILIKE $${values.length}
-                OR i.brand     ILIKE $${values.length}
-                OR i.category  ILIKE $${values.length}
+                i.item_name LIKE $${values.length}
+                OR i.item_code LIKE $${values.length}
+                OR i.brand     LIKE $${values.length}
+                OR i.category  LIKE $${values.length}
             )
         `;
     }
@@ -580,14 +580,14 @@ async function createInventoryAdjustmentItem(client, adjId, item) {
 }
 
 async function updateInventoryItemStock(client, invItemId, newStock) {
-    const query = `
-        UPDATE inventory_item
-        SET opening_stock = $1
-        WHERE inv_item_id = $2
-        RETURNING opening_stock AS "openingStock";
-    `;
-
-    const result = await client.query(query, [Number(newStock), Number(invItemId)]);
+    await client.query(
+        `UPDATE inventory_item SET opening_stock = $1 WHERE inv_item_id = $2`,
+        [Number(newStock), Number(invItemId)]
+    );
+    const result = await client.query(
+        `SELECT opening_stock AS "openingStock" FROM inventory_item WHERE inv_item_id = $1 LIMIT 1`,
+        [Number(invItemId)]
+    );
     return result.rows[0] || null;
 }
 
@@ -599,9 +599,9 @@ async function getInventoryControls({ limit, offset, search }) {
         values.push(`%${search}%`);
         whereConditions += `
             AND (
-                a.adjustment_number ILIKE $${values.length}
-                OR a.reference_number ILIKE $${values.length}
-                OR a.reason ILIKE $${values.length}
+                a.adjustment_number LIKE $${values.length}
+                OR a.reference_number LIKE $${values.length}
+                OR a.reason LIKE $${values.length}
             )
         `;
     }

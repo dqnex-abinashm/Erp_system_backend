@@ -54,9 +54,9 @@ const getAll = async ({ search = "", status = "" } = {}) => {
         values.push(`%${search}%`);
         const p = `$${values.length}`;
         conditions.push(`(
-            i.invoice_number ILIKE ${p}
-            OR COALESCE(i.sales_order_number, '') ILIKE ${p}
-            OR COALESCE(c.display_name, '') ILIKE ${p}
+            i.invoice_number LIKE ${p}
+            OR COALESCE(i.sales_order_number, '') LIKE ${p}
+            OR COALESCE(c.display_name, '') LIKE ${p}
         )`);
     }
 
@@ -72,16 +72,16 @@ const getAll = async ({ search = "", status = "" } = {}) => {
     const result = await pool.query(
         `SELECT
             i.invoice_id                              AS id,
-            TO_CHAR(i.invoice_date, 'DD/MM/YYYY')     AS date,
+            DATE_FORMAT(i.invoice_date, '%d/%m/%Y')   AS date,
             i.invoice_number                          AS invoice,
             COALESCE(i.sales_order_number, '')        AS "orderNo",
             c.display_name                            AS "customerName",
             i.payment_status                          AS status,
-            TO_CHAR(i.due_date, 'DD/MM/YYYY')         AS "dueDate",
+            DATE_FORMAT(i.due_date, '%d/%m/%Y')       AS "dueDate",
             i.total_amount                            AS amount,
             i.balance_amount                          AS "balanceDue"
-           FROM public.invoice i
-           LEFT JOIN public.customer c
+           FROM invoice i
+           LEFT JOIN customer c
              ON c.customer_id = i.customer_id
           ${where}
           ORDER BY i.created_at DESC, i.invoice_id DESC`,
@@ -105,10 +105,10 @@ const getByIdWithRelations = async (id) => {
             c.email         AS customer_email,
             c.primary_phone AS customer_phone,
             CONCAT_WS(' ', c.primary_contact_first_name, c.primary_contact_last_name) AS customer_poc,
-            TO_CHAR(i.invoice_date, 'DD/MM/YYYY') AS invoice_date_display,
-            TO_CHAR(i.due_date, 'DD/MM/YYYY')     AS due_date_display,
-            TO_CHAR(so.sale_date, 'DD/MM/YYYY')   AS order_date_display,
-            (i.due_date - i.invoice_date)         AS payment_days
+            DATE_FORMAT(i.invoice_date, '%d/%m/%Y') AS invoice_date_display,
+            DATE_FORMAT(i.due_date, '%d/%m/%Y')     AS due_date_display,
+            DATE_FORMAT(so.sale_date, '%d/%m/%Y')   AS order_date_display,
+            DATEDIFF(i.due_date, i.invoice_date)    AS payment_days
            FROM public.invoice i
            LEFT JOIN public.customer c
              ON c.customer_id = i.customer_id
@@ -153,7 +153,7 @@ const create = async (header, items) => {
         await client.query("BEGIN");
 
         const seq = await client.query(
-            `SELECT nextval(pg_get_serial_sequence('public.invoice', 'invoice_id')) AS id`
+            `SELECT NEXT VALUE FOR invoice_id_seq AS id`
         );
         const invoiceId = seq.rows[0].id;
         const invoiceNumber = `INV-${String(invoiceId).padStart(5, "0")}`;

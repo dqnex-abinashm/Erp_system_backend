@@ -84,7 +84,7 @@ async function login(req, res, next) {
         const passwordValid = verifyPassword(password, user.password);
         if (!passwordValid) {
             const attempts = (user.login_attempt_count || 0) + 1;
-            const lockSql = attempts >= 5 ? ", locked_until = CURRENT_TIMESTAMP + INTERVAL '15 minutes'" : '';
+            const lockSql = attempts >= 5 ? ', locked_until = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 15 MINUTE)' : '';
             await pool.query(
                 `UPDATE public.users
                  SET login_attempt_count = $1 ${lockSql},
@@ -185,7 +185,7 @@ async function verifyOtp(req, res, next) {
                 ip_address, user_agent, is_current_session, created_by
              ) VALUES (
                 $1, $2, $3, $4,
-                'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '24 hours',
+                'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 24 HOUR),
                 $5, $6, TRUE, $1
              )`,
             [user.users_id, user.username, token, refreshToken, ipAddress, userAgent]

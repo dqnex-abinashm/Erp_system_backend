@@ -5,9 +5,9 @@ const PORT = process.env.PORT || 3000;
 
 pool.connect((err, client, release) => {
     if (err) {
-        console.error('PostgreSQL connection failed:', err.message);
+        console.error('MariaDB connection failed:', err.message);
     } else {
-        console.log('PostgreSQL connected successfully');
+        console.log('MariaDB connected successfully');
         release();
     }
 

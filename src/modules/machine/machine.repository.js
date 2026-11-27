@@ -654,106 +654,50 @@ const getMachineById = async (
     client,
     machineId
 ) => {
+    const machineRes = await client.query(
+        `SELECT * FROM machine WHERE CAST(machine_id AS CHAR) = CAST(? AS CHAR) LIMIT 1`,
+        [machineId]
+    );
+    const machine = machineRes.rows[0] || null;
+    if (!machine) return null;
 
-    const result =
-        await client.query(
-            `
-            SELECT
+    const tsRes = await client.query(
+        `SELECT * FROM machine_technical_spec WHERE machine_id = ? LIMIT 1`,
+        [machine.machine_id]
+    );
+    const osRes = await client.query(
+        `SELECT * FROM machine_operational_spec WHERE machine_id = ? LIMIT 1`,
+        [machine.machine_id]
+    );
+    const scRes = await client.query(
+        `SELECT
+            sc.*,
+            COALESCE(v.display_name, v.company_name) AS vendor_name,
+            v.vendor_code AS vendor_code
+         FROM machine_service_contract sc
+         LEFT JOIN vendor v ON v.vendor_id = sc.vendor_id
+         WHERE sc.machine_id = ?
+         LIMIT 1`,
+        [machine.machine_id]
+    );
 
-                m.*,
-
-                row_to_json(ts)
-                    AS technical_spec,
-
-                row_to_json(os)
-                    AS operational_spec,
-
-                CASE
-
-                    WHEN sc.machine_id IS NOT NULL
-
-                    THEN
-
-                        to_jsonb(sc)
-
-                        ||
-
-                        jsonb_build_object(
-
-                            'vendor_name',
-
-                            COALESCE(
-                                v.display_name,
-                                v.company_name
-                            ),
-
-                            'vendor_code',
-
-                            v.vendor_code
-
-                        )
-
-                    ELSE
-
-                        NULL
-
-                END
-                    AS service_contract
-
-            FROM public.machine m
-
-            LEFT JOIN
-                public.machine_technical_spec ts
-
-                ON ts.machine_id =
-                    m.machine_id
-
-            LEFT JOIN
-                public.machine_operational_spec os
-
-                ON os.machine_id =
-                    m.machine_id
-
-            LEFT JOIN
-                public.machine_service_contract sc
-
-                ON sc.machine_id =
-                    m.machine_id
-
-            LEFT JOIN
-                public.vendor v
-
-                ON v.vendor_id =
-                    sc.vendor_id
-
-            WHERE
-                CAST(m.machine_id AS TEXT) =
-                CAST($1 AS TEXT)
-
-            LIMIT 1
-            `,
-            [
-                machineId
-            ]
-        );
-
+    const hydrated = {
+        ...machine,
+        technical_spec: tsRes.rows[0] || null,
+        operational_spec: osRes.rows[0] || null,
+        service_contract: scRes.rows[0] || null,
+    };
 
     console.log(
         'GET MACHINE BY ID RESULT:',
         {
             requestedMachineId: machineId,
-            rowCount: result.rows.length,
-            machine:
-                result.rows[0] || null
+            rowCount: 1,
+            machine: hydrated
         }
     );
 
-
-    return (
-        result.rows[0] ||
-        null
-    );
-
+    return hydrated;
 };
 
 /*
@@ -779,29 +723,19 @@ const getAllMachines = async () => {
             mts.capacity,
             mts.capacity_unit,
 
-            mm.next_maintenance_date
+            (
+                SELECT mm.next_maintenance_date
+                FROM machine_maintenance mm
+                WHERE mm.machine_id = m.machine_id
+                  AND mm.next_maintenance_date IS NOT NULL
+                ORDER BY mm.next_maintenance_date ASC
+                LIMIT 1
+            ) AS next_maintenance_date
 
-        FROM public.machine m
+        FROM machine m
 
-        LEFT JOIN public.machine_technical_spec mts
+        LEFT JOIN machine_technical_spec mts
             ON mts.machine_id = m.machine_id
-
-        LEFT JOIN LATERAL (
-
-            SELECT
-                next_maintenance_date
-
-            FROM public.machine_maintenance
-
-            WHERE machine_id = m.machine_id
-
-              AND next_maintenance_date IS NOT NULL
-
-            ORDER BY next_maintenance_date ASC
-
-            LIMIT 1
-
-        ) mm ON TRUE
 
         ORDER BY m.machine_id ASC
     `;

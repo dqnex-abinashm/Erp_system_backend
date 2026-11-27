@@ -181,7 +181,7 @@ const updateBill = async (billId, billData) => {
       values
     );
 
-    if (billResult.rows.length === 0) {
+    if (billResult.rowCount === 0) {
       await client.query("ROLLBACK");
       return null;
     }
@@ -203,9 +203,14 @@ const updateBill = async (billId, billData) => {
       );
     }
 
+    const updatedRes = await client.query(
+      queries.GET_BILL_BY_ID,
+      [billId]
+    );
+
     await client.query("COMMIT");
 
-    return billResult.rows[0];
+    return updatedRes.rows[0] || null;
 
   } catch (error) {
 

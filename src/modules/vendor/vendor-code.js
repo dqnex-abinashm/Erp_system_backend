@@ -11,7 +11,7 @@
 async function generateVendorCode(client) {
 
     const result = await client.query(`
-        SELECT nextval('vendor_code_seq') AS sequence_no
+        SELECT NEXT VALUE FOR vendor_code_seq AS sequence_no
     `);
 
     const sequenceNo = result.rows[0].sequence_no;

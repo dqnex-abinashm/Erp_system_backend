@@ -413,8 +413,8 @@ async function createQuote(data) {
             )
             VALUES (
                 $1,
-                COALESCE($6::date, CURRENT_DATE),
-                COALESCE($7::date, (CURRENT_DATE + INTERVAL '30 days')::date),
+                COALESCE($6, CURDATE()),
+                COALESCE($7, DATE_ADD(CURDATE(), INTERVAL 30 DAY)),
                 $2, $3, $4, NOW(), 1, $5, $8
             )
             RETURNING quote_id
@@ -540,7 +540,7 @@ async function getAllQuotes() {
         const query = `
             SELECT 
                 q.quote_id as id,
-                TO_CHAR(q.quote_date, 'DD/MM/YYYY') as date,
+                DATE_FORMAT(q.quote_date, '%d/%m/%Y') as date,
                 q.quote_number as "quoteNo",
                 c.display_name as "customerName",
                 MAX(qi.box_spec) as "boxSpec",
@@ -591,7 +591,7 @@ async function getQuoteById(id) {
         const query = `
             SELECT 
                 q.quote_id as id,
-                TO_CHAR(q.quote_date, 'DD/MM/YYYY') as date,
+                DATE_FORMAT(q.quote_date, '%d/%m/%Y') as date,
                 q.quote_number as "quoteNo",
                 c.display_name as "customerName",
                 CONCAT_WS(', ', ba.street_1, ba.street_2, ba.city, ba.state, ba.zip_code) as "billingAddress",
@@ -603,7 +603,7 @@ async function getQuoteById(id) {
                 c.email as "email",
                 c.primary_phone as "phone",
                 q.sales_man as "salesperson",
-                TO_CHAR(q.expiry_date, 'DD/MM/YYYY') as "expectedShipment",
+                DATE_FORMAT(q.expiry_date, '%d/%m/%Y') as "expectedShipment",
                 qi.quantity as quantity,
                 qi.total_weight as "totalWeight",
                 qi.box_length as "boxLength",
@@ -630,8 +630,8 @@ async function getQuoteById(id) {
                 q.reference_no  as "referenceNo",
                 q.project_name  as "projectName",
                 qi.box_weight   as "boxWeight",
-                TO_CHAR(q.quote_date, 'YYYY-MM-DD')  as "quoteDateIso",
-                TO_CHAR(q.expiry_date, 'YYYY-MM-DD') as "expiryDateIso",
+                DATE_FORMAT(q.quote_date, '%Y-%m-%d')  as "quoteDateIso",
+                DATE_FORMAT(q.expiry_date, '%Y-%m-%d') as "expiryDateIso",
                 qi.top_bf       as "topBf",
                 qi.liner_bf     as "linerBf",
                 qi.flut_bf      as "fluteBf"

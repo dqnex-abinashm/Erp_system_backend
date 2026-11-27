@@ -1,16 +1,18 @@
 // src/modules/supply_chain/shipment/shipment-code.js
 
 /**
- * Shipment SQL queries (tables: shipment, shipment_item)
+ * Shipment SQL queries (tables: shipment, shipment_item) - MariaDB compatible
  */
 
 const LOCK_SHIPMENT_NUMBER = `
-    SELECT pg_advisory_xact_lock(hashtext('shipment_number'));
+    SELECT COALESCE(MAX(shipment_id), 0) AS max_id
+    FROM shipment
+    FOR UPDATE;
 `;
 
 const GET_NEXT_SHIPMENT_SEQ = `
     SELECT COALESCE(
-        MAX(CAST(SUBSTRING(shipment_number FROM '[0-9]+$') AS INTEGER)),
+        MAX(CAST(REGEXP_SUBSTR(shipment_number, '[0-9]+$') AS UNSIGNED)),
         0
     ) + 1 AS next_seq
     FROM shipment;
@@ -20,14 +22,14 @@ const GET_NEXT_SHIPMENT_SEQ = `
 const GET_PACKAGE_FOR_SHIPMENT = `
     SELECT *
     FROM packaging
-    WHERE package_id = $1
+    WHERE package_id = ?
     FOR UPDATE;
 `;
 
 const GET_PACKAGE_ITEMS = `
     SELECT *
     FROM packaging_item
-    WHERE package_id = $1
+    WHERE package_id = ?
     ORDER BY package_item_id ASC;
 `;
 
@@ -36,7 +38,7 @@ const CHECK_PACKAGE_ALREADY_SHIPPED = `
     FROM shipment_item si
     JOIN shipment s
         ON s.shipment_id = si.shipment_id
-    WHERE si.package_id = $1
+    WHERE si.package_id = ?
       AND s.shipment_status <> 'CANCELLED'
     LIMIT 1;
 `;
@@ -62,10 +64,10 @@ const CREATE_SHIPMENT = `
         created_by
     )
     VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15,
-        $16, $17
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?
     )
     RETURNING *;
 `;
@@ -89,9 +91,9 @@ const CREATE_SHIPMENT_ITEM = `
         created_by
     )
     VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
     )
     RETURNING *;
 `;
@@ -100,21 +102,20 @@ const MARK_PACKAGE_SHIPPED = `
     UPDATE packaging
     SET
         package_status = 'SHIPPED',
-        modified_by = $2,
+        modified_by = ?,
         modified_at = CURRENT_TIMESTAMP
-    WHERE package_id = $1;
+    WHERE package_id = ?;
 `;
 
-// Packed packages of one customer that are not in any active shipment yet
 const GET_SHIPPABLE_PACKAGES = `
     SELECT
         p.package_id,
         p.package_number,
         p.package_slip_number,
-        TO_CHAR(p.package_date, 'DD/MM/YYYY') AS package_date,
+        DATE_FORMAT(p.package_date, '%d/%m/%Y') AS package_date,
         p.total_quantity
     FROM packaging p
-    WHERE p.customer_id = $1
+    WHERE p.customer_id = ?
       AND p.package_status = 'PACKED'
       AND NOT EXISTS (
             SELECT 1
@@ -127,18 +128,17 @@ const GET_SHIPPABLE_PACKAGES = `
     ORDER BY p.created_at DESC, p.package_id DESC;
 `;
 
-// Shipment tab list
 const GET_ALL_SHIPMENTS = `
     SELECT
         s.shipment_id,
         s.shipment_number,
         s.shipment_status,
-        TO_CHAR(s.ship_date, 'DD/MM/YYYY') AS ship_date,
+        DATE_FORMAT(s.ship_date, '%d/%m/%Y') AS ship_date,
         s.carrier,
         s.tracking_number,
         s.shipping_charges,
         c.display_name AS customer_name,
-        it.total_quantity,
+        COALESCE(it.total_quantity, 0) AS total_quantity,
         it.package_numbers,
         it.sales_order_numbers
     FROM shipment s
@@ -146,29 +146,29 @@ const GET_ALL_SHIPMENTS = `
     LEFT JOIN customer c
         ON c.customer_id = s.customer_id
 
-    LEFT JOIN LATERAL (
+    LEFT JOIN (
         SELECT
+            si.shipment_id,
             COALESCE(SUM(si.pack_quantity), 0) AS total_quantity,
-            STRING_AGG(DISTINCT si.package_number, ', ') AS package_numbers,
-            STRING_AGG(DISTINCT so.sales_order_number, ', ') AS sales_order_numbers
+            GROUP_CONCAT(DISTINCT si.package_number SEPARATOR ', ') AS package_numbers,
+            GROUP_CONCAT(DISTINCT so.sales_order_number SEPARATOR ', ') AS sales_order_numbers
         FROM shipment_item si
         LEFT JOIN sales_order_item soi
             ON soi.sales_order_item_id = si.sales_order_item_id
         LEFT JOIN sales_order so
             ON so.sales_order_id = soi.sales_order_id
-        WHERE si.shipment_id = s.shipment_id
-    ) it ON TRUE
+        GROUP BY si.shipment_id
+    ) it ON it.shipment_id = s.shipment_id
 
     ORDER BY s.created_at DESC, s.shipment_id DESC;
 `;
 
-// Shipment details page
 const GET_SHIPMENT_DETAILS = `
     SELECT
         s.shipment_id,
         s.shipment_number,
         s.shipment_status,
-        TO_CHAR(s.ship_date, 'DD/MM/YYYY') AS ship_date,
+        DATE_FORMAT(s.ship_date, '%d/%m/%Y') AS ship_date,
         s.carrier,
         s.tracking_number,
         s.tracking_url,
@@ -196,47 +196,46 @@ const GET_SHIPMENT_DETAILS = `
     LEFT JOIN customer c
         ON c.customer_id = s.customer_id
 
-    LEFT JOIN LATERAL (
-        SELECT street_1, street_2, city, state, zip_code
-        FROM customer_addresses
-        WHERE customer_address_id = s.billing_address_id
-           OR (
-                s.billing_address_id IS NULL
-                AND customer_id = s.customer_id
-                AND address_type = 'BILLING'
-           )
-        ORDER BY customer_address_id ASC
-        LIMIT 1
-    ) ba ON TRUE
+    LEFT JOIN customer_addresses ba
+        ON ba.customer_address_id = COALESCE(
+            s.billing_address_id,
+            (
+                SELECT customer_address_id
+                FROM customer_addresses
+                WHERE customer_id = s.customer_id
+                  AND address_type = 'BILLING'
+                ORDER BY customer_address_id ASC
+                LIMIT 1
+            )
+        )
 
-    LEFT JOIN LATERAL (
-        SELECT street_1, street_2, city, state, zip_code
-        FROM customer_addresses
-        WHERE customer_address_id = s.shipping_address_id
-           OR (
-                s.shipping_address_id IS NULL
-                AND customer_id = s.customer_id
-                AND address_type = 'SHIPPING'
-           )
-        ORDER BY customer_address_id ASC
-        LIMIT 1
-    ) sa ON TRUE
+    LEFT JOIN customer_addresses sa
+        ON sa.customer_address_id = COALESCE(
+            s.shipping_address_id,
+            (
+                SELECT customer_address_id
+                FROM customer_addresses
+                WHERE customer_id = s.customer_id
+                  AND address_type = 'SHIPPING'
+                ORDER BY customer_address_id ASC
+                LIMIT 1
+            )
+        )
 
-    WHERE s.shipment_id = $1;
+    WHERE s.shipment_id = ?;
 `;
 
-// sales orders behind the shipment items (for order number / dates)
 const GET_SHIPMENT_SALES_ORDERS = `
     SELECT DISTINCT
         so.sales_order_number,
-        TO_CHAR(so.sale_date, 'DD/MM/YYYY') AS sale_date,
-        TO_CHAR(so.delivery_date, 'DD/MM/YYYY') AS delivery_date
+        DATE_FORMAT(so.sale_date, '%d/%m/%Y') AS sale_date,
+        DATE_FORMAT(so.delivery_date, '%d/%m/%Y') AS delivery_date
     FROM shipment_item si
     JOIN sales_order_item soi
         ON soi.sales_order_item_id = si.sales_order_item_id
     JOIN sales_order so
         ON so.sales_order_id = soi.sales_order_id
-    WHERE si.shipment_id = $1
+    WHERE si.shipment_id = ?
     ORDER BY so.sales_order_number ASC;
 `;
 

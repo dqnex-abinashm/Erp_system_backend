@@ -31,51 +31,47 @@ const MASTER_ROLES = [
 ];
 
 /**
- * Idempotently creates recommended performance indexes and seeds master lookup tables.
+ * Idempotently seeds master lookup tables and MariaDB sequences.
  */
 async function ensureSeededAndIndexed() {
     const client = await pool.connect();
     try {
-        await client.query('BEGIN');
+        // Ensure MariaDB sequences exist past existing code numbers
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS customer_code_seq START WITH 50 INCREMENT BY 1`);
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS inventory_item_code_seq START WITH 20 INCREMENT BY 1`);
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS vendor_code_seq START WITH 50 INCREMENT BY 1`);
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS invoice_id_seq START WITH 1 INCREMENT BY 1`);
 
-        // Recommended lookup indexes for session & OTP verification
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON public.login_sessions(user_id)`);
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_login_sessions_access_token ON public.login_sessions(access_token)`);
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_otp_master_email ON public.otp_master(email)`);
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_otp_master_user_id ON public.otp_master(user_id)`);
+        await client.query('BEGIN');
 
         for (const d of MASTER_DEPARTMENTS) {
             await client.query(
-                `INSERT INTO public.departments (department_code, department_name, description, is_active)
-                 VALUES ($1, $2, $3, TRUE)
-                 ON CONFLICT (department_name) DO NOTHING`,
+                `INSERT IGNORE INTO departments (department_code, department_name, description, is_active)
+                 VALUES (?, ?, ?, TRUE)`,
                 [d.code, d.name, d.description]
             );
         }
 
         for (const p of MASTER_PLANTS) {
             await client.query(
-                `INSERT INTO public.plants (plant_code, plant_name, plant_address, is_active)
-                 VALUES ($1, $2, $3, TRUE)
-                 ON CONFLICT (plant_name) DO NOTHING`,
+                `INSERT IGNORE INTO plants (plant_code, plant_name, plant_address, is_active)
+                 VALUES (?, ?, ?, TRUE)`,
                 [p.code, p.name, p.address]
             );
         }
 
         for (const s of MASTER_SHIFTS) {
             await client.query(
-                `INSERT INTO public.shifts (shift_code, shift_name, start_time, end_time, description, is_active)
-                 VALUES ($1, $2, $3, $4, $5, TRUE)
-                 ON CONFLICT (shift_name) DO NOTHING`,
+                `INSERT IGNORE INTO shifts (shift_code, shift_name, start_time, end_time, description, is_active)
+                 VALUES (?, ?, ?, ?, ?, TRUE)`,
                 [s.code, s.name, s.start, s.end, s.description]
             );
         }
 
         for (const r of MASTER_ROLES) {
             await client.query(
-                `INSERT INTO public.roles (role_code, role_name, role_description, is_active)
-                 VALUES ($1, $2, $3, TRUE)
-                 ON CONFLICT (role_name) DO NOTHING`,
+                `INSERT IGNORE INTO roles (role_code, role_name, role_description, is_active)
+                 VALUES (?, ?, ?, TRUE)`,
                 [r.code, r.name, r.description]
             );
         }
@@ -83,26 +79,25 @@ async function ensureSeededAndIndexed() {
         // Seed primary Super Admin user if not already present
         const adminEmail = (process.env.ADMIN_EMAIL || process.env.SMTP_USER || 'info@dqnex.com').trim().toLowerCase();
         const existingAdmin = await client.query(
-            `SELECT users_id FROM public.users WHERE LOWER(email) = $1 LIMIT 1`,
+            `SELECT users_id, department_id FROM users WHERE LOWER(email) = ? LIMIT 1`,
             [adminEmail]
         );
 
-        if (existingAdmin.rows.length === 0) {
-            const deptRes = await client.query(`SELECT department_id FROM public.departments WHERE department_name = 'Operation' LIMIT 1`);
-            const plantRes = await client.query(`SELECT plant_id FROM public.plants WHERE plant_name = 'Unit-1' LIMIT 1`);
-            const shiftRes = await client.query(`SELECT shift_id FROM public.shifts WHERE shift_name = 'Shift-A' LIMIT 1`);
-            const roleRes = await client.query(`SELECT role_id FROM public.roles WHERE role_name = 'Super Admin' LIMIT 1`);
+        const deptRes = await client.query(`SELECT department_id FROM departments WHERE department_name = 'Operation' LIMIT 1`);
+        const plantRes = await client.query(`SELECT plant_id FROM plants WHERE plant_name = 'Unit-1' LIMIT 1`);
+        const shiftRes = await client.query(`SELECT shift_id FROM shifts WHERE shift_name = 'Shift-A' LIMIT 1`);
+        const roleRes = await client.query(`SELECT role_id FROM roles WHERE role_name = 'Super Admin' LIMIT 1`);
 
+        if (existingAdmin.rows.length === 0) {
             const defaultPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
             const hashedPassword = hashPassword(defaultPassword);
 
             const insertedAdmin = await client.query(
-                `INSERT INTO public.users (
+                `INSERT IGNORE INTO users (
                     employee_id, first_name, last_name, username, email,
                     designation, department_id, plant_id, default_shift_id,
                     password, is_active, is_delete
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, FALSE)
-                ON CONFLICT (email) DO NOTHING
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE)
                 RETURNING users_id`,
                 [
                     'EMP-0001',
@@ -120,12 +115,15 @@ async function ensureSeededAndIndexed() {
 
             if (insertedAdmin.rows.length > 0 && roleRes.rows.length > 0) {
                 await client.query(
-                    `INSERT INTO public.user_roles (users_id, role_id)
-                     VALUES ($1, $2)
-                     ON CONFLICT (users_id, role_id) DO NOTHING`,
+                    `INSERT IGNORE INTO user_roles (users_id, role_id) VALUES (?, ?)`,
                     [insertedAdmin.rows[0].users_id, roleRes.rows[0].role_id]
                 );
             }
+        } else if (!existingAdmin.rows[0].department_id && deptRes.rows[0]?.department_id) {
+            await client.query(
+                `UPDATE users SET department_id = ? WHERE users_id = ?`,
+                [deptRes.rows[0].department_id, existingAdmin.rows[0].users_id]
+            );
         }
 
         await client.query('COMMIT');
@@ -141,7 +139,7 @@ async function ensureSeededAndIndexed() {
 if (require.main === module) {
     ensureSeededAndIndexed()
         .then(() => {
-            console.log('User management master tables seeded & indexed successfully.');
+            console.log('MariaDB user management master tables & sequences seeded successfully.');
             return pool.end();
         })
         .catch((err) => {

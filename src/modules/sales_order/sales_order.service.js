@@ -168,7 +168,7 @@ async function getAllSalesOrders() {
         const query = `
             SELECT 
                 so.sales_order_id as id,
-                TO_CHAR(so.sale_date, 'DD/MM/YYYY') as date,
+                DATE_FORMAT(so.sale_date, '%d/%m/%Y') as date,
                 so.sales_order_number as "salesOrderNo",
                 so.quote_number as "referenceNo",
                 c.display_name as "customerName",
@@ -196,7 +196,7 @@ async function getSalesOrderById(id) {
         const query = `
             SELECT 
                 so.sales_order_id as id,
-                TO_CHAR(so.sale_date, 'DD/MM/YYYY') as date,
+                DATE_FORMAT(so.sale_date, '%d/%m/%Y') as date,
                 so.sales_order_number as "salesOrderNo",
                 so.quote_number as "quoteNo",
                 so.po_number as "poNo",
@@ -232,9 +232,9 @@ async function getSalesOrderById(id) {
                 soi.two_ply_number as "twoPlyNumber",
 
                 -- Dates (used by the edit-dates feature)
-                TO_CHAR(so.sale_date, 'YYYY-MM-DD') as "saleDateIso",
-                TO_CHAR(so.delivery_date, 'YYYY-MM-DD') as "deliveryDateIso",
-                TO_CHAR(so.delivery_date, 'DD/MM/YYYY') as "deliveryDate"
+                DATE_FORMAT(so.sale_date, '%Y-%m-%d') as "saleDateIso",
+                DATE_FORMAT(so.delivery_date, '%Y-%m-%d') as "deliveryDateIso",
+                DATE_FORMAT(so.delivery_date, '%d/%m/%Y') as "deliveryDate"
             FROM sales_order so
             LEFT JOIN customer c ON so.customer_id = c.customer_id
             LEFT JOIN sales_order_item soi ON so.sales_order_id = soi.sales_order_id
